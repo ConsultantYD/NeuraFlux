@@ -1,6 +1,6 @@
 # NeuraFlux
 
-![NeuraFlux](./images/Neuraflux.png)
+![NeuraFlux](./images/NeuraFlux_main.png)
 
 **NeuraFlux** is a scalable and adaptive framework for data-driven multi-agent power optimization in smart grid environments. Leveraging deep reinforcement learning, NeuraFlux offers advanced and customized real-time decision-making capabilities. The framework's modular and scalable design facilitates seamless integration with various electrical assets and consumer-level devices, accommodating diverse stakeholder requirements.
 
