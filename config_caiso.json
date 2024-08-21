@@ -1,0 +1,146 @@
+{
+    "agents": {
+        "Agent001": {
+            "control": {
+                "n_controls": 1,
+                "n_trajectory_samples": 1,
+                "trajectory_length": 6,
+                "reinforcement_learning": {
+                    "state_signals": null,
+                    "action_size": null,
+                    "history_length": 6,
+                    "n_controllers": 1,
+                    "add_hourly_time_features_to_state": true,
+                    "add_daily_time_features_to_state": true,
+                    "add_weekly_time_features_to_state": false,
+                    "add_monthly_time_features_to_state": false,
+                    "discount_factor": 0.99,
+                    "n_target_updates": 10,
+                    "n_sampling_iters": 5,
+                    "experience_sampling_size": 500,
+                    "learning_rate": 0.00025,
+                    "n_fit_epochs": 1,
+                    "tf_batch_size": 8,
+                    "replay_buffer_size": 20000,
+                    "prioritized_replay_alpha": 0.6
+                }
+            },
+            "data": {
+                "control_power_mapping": {
+                    "0": -250.0,
+                    "1": 0.0,
+                    "2": 250.0
+                },
+                "tracked_signals": [
+                    "internal_energy",
+                    "market_price_t",
+                    "market_price_t+1",
+                    "market_price_t+2",
+                    "market_price_t+3",
+                    "market_price_t+4",
+                    "market_price_t+5",
+                    "market_price_t+6"
+                ],
+                "signals_info": {
+                    "internal_energy": {
+                        "tags": [
+                            "X",
+                            "S"
+                        ],
+                        "temporal_knowledge": 0,
+                        "min_value": 0,
+                        "max_value": 500,
+                        "scalable": true
+                    },
+                    "market_price_t": {
+                        "tags": [
+                            "W",
+                            "S"
+                        ]
+                    },
+                    "market_price_t+1": {
+                        "tags": [
+                            "W",
+                            "S"
+                        ]
+                    },
+                    "market_price_t+2": {
+                        "tags": [
+                            "W",
+                            "S"
+                        ]
+                    },
+                    "market_price_t+3": {
+                        "tags": [
+                            "W",
+                            "S"
+                        ]
+                    },
+                    "market_price_t+4": {
+                        "tags": [
+                            "W",
+                            "S"
+                        ]
+                    },
+                    "market_price_t+5": {
+                        "tags": [
+                            "W",
+                            "S"
+                        ]
+                    },
+                    "market_price_t+6": {
+                        "tags": [
+                            "W",
+                            "S"
+                        ]
+                    }
+                }
+            },
+            "product": "Dynamic Pricing (CAISO)",
+            "tariff": "No Tariff"
+        }
+    },
+    "assets": {
+        "Agent001": {
+            "core_variables": [
+                "timestamp",
+                "control",
+                "power",
+                "outside_air_temperature"
+            ],
+            "initial_state_dict": {
+                "internal_energy": 0.0
+            },
+            "n_controls": 1,
+            "capacity_kwh": 500.0,
+            "control_power_mapping": {
+                "0": -250.0,
+                "1": 0.0,
+                "2": 250.0
+            },
+            "efficiency_in": {
+                "value": 1.0
+            },
+            "efficiency_out": {
+                "value": 1.0
+            },
+            "decay_factor": 1.0,
+            "tracked_variables": [
+                "internal_energy"
+            ]
+        }
+    },
+    "data": {
+        "base_dir": "Data Module"
+    },
+    "directory": "simulations/Sim3",
+    "geography": {
+        "city": "Toronto"
+    },
+    "seed": 42,
+    "time": {
+        "start_time": "2023-01-01_00-00-00",
+        "end_time": "2023-06-1_00-00-00",
+        "step_size_s": 300
+    }
+}
