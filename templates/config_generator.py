@@ -1,4 +1,11 @@
 import json
+
+from default_values import (
+    ENERGY_STORAGE_DEF_INITIAL_STATE_DICT,
+    ENERGY_STORAGE_DEF_CMP,
+    ENERGY_STORAGE_DEF_SIGNAL_INFO,
+    ENERGY_STORAGE_DEF_TRACKED_SIGNALS,
+)
 from neuraflux.geography import CityEnum
 from neuraflux.schemas.agency import (
     AgentConfig,
@@ -6,12 +13,12 @@ from neuraflux.schemas.agency import (
     AgentDataConfig,
     RLConfig,
 )
+from neuraflux.schemas.asset_config import BuildingConfig
 from neuraflux.schemas.simulation import (
     SimulationConfig,
     SimulationGeographicalConfig,
     SimulationTimeConfig,
 )
-from neuraflux.schemas.asset_config import BuildingConfig
 
 # -----------------------------------------------------------------
 # TIME CONFIGURATION SUBSECTION
@@ -59,56 +66,22 @@ AGENT_CONTROL_CONFIG = AgentControlConfig(
 
 # AGENT DATA
 AGENT_DATA_CONFIG = AgentDataConfig(
-    control_power_mapping={
-        0: 20,  # Cooling Stage 2
-        1: 10,  # Cooling Stage 1
-        2: 0,  # Control Off
-        3: 10,  # Heating Stage 1
-        4: 20,  # Heating Stage 2
-    },
-    tracked_signals=[
-        "temperature_1",
-        "temperature_2",
-        "temperature_3",
-        "hvac_1",
-        "hvac_2",
-        "hvac_3",
-        "cool_setpoint",
-        "heat_setpoint",
-        "occupancy",
-    ],
-    signals_info={
-        "temperature_1": {
-            "tags": ["X"],
-            "min_value": 10,
-            "max_value": 40,
-            "scalable": True,
-        },
-        "temperature_2": {
-            "tags": ["X"],
-            "min_value": 10,
-            "max_value": 40,
-            "scalable": True,
-        },
-        "temperature_3": {
-            "tags": ["X"],
-            "min_value": 10,
-            "max_value": 40,
-            "scalable": True,
-        },
-        "hvac_1": {"tags": ["U"]},
-        "hvac_2": {"tags": ["U"]},
-        "hvac_3": {"tags": ["U"]},
-        "cool_setpoint": {"tags": ["W"]},
-        "heat_setpoint": {"tags": ["W"]},
-        "occupancy": {"tags": ["W"]},
-    },
+    control_power_mapping=ENERGY_STORAGE_DEF_CMP,
+    tracked_signals=ENERGY_STORAGE_DEF_TRACKED_SIGNALS,
+    signals_info=ENERGY_STORAGE_DEF_SIGNAL_INFO,
 )
 
 # GLOBAL AGENT CONFIG
 TARIFF_STR = "ONTARIO_TOU"
 PRODUCT_STR = "SIMPLE_TARIFF_OPT"
 AGENT_CONFIG = AgentConfig(
+    asset_metadata={
+        "address": "123 Fake St, Anytown, CA",
+        "timezone": "America/Toronto",
+        "location": (43.7, -79.42, 0.0),
+        "owner": "John Doe",
+    },
+    components_metadata=[],
     control=AGENT_CONTROL_CONFIG,
     data=AGENT_DATA_CONFIG,
     product=PRODUCT_STR,
@@ -119,7 +92,7 @@ AGENT_CONFIG = AgentConfig(
 # SIMULATION CONFIGURATION SECTION
 # -----------------------------------------------------------------
 ASSET_CONFIG = BuildingConfig(
-    initial_state_dict={"temperature": [21.0, 21.0, 21.0], "hvac": [0, 0, 0]},
+    initial_state_dict=ENERGY_STORAGE_DEF_INITIAL_STATE_DICT,
 )
 
 SIMULATION_CONFIG = SimulationConfig(
@@ -145,5 +118,5 @@ loaded_config = SimulationConfig.model_validate(loaded_config)
 
 print(SIMULATION_CONFIG == loaded_config)
 print(SIMULATION_CONFIG)
-print('-------------------')
+print("-------------------")
 print(loaded_config)
