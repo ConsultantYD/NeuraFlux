@@ -7,7 +7,7 @@ from neuraflux.global_variables import POWER_KEY, TIMESTAMP_KEY
 from neuraflux.schemas.asset_config import (
     EnergyStorageConfig,
 )
-from neuraflux.schemas.control import DiscreteControl
+#from neuraflux.schemas.control import DiscreteControl
 
 
 # Fixture for reusable ElectricVehicle instance
