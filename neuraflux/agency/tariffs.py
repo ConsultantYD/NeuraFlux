@@ -238,8 +238,8 @@ class OntarioTOUTariff(Tariff):
         return df
 
     def client_facing_name(self) -> str:
-        #return "General, TOU < 50 kW"
-        return "Ontario TOU"
+        return "General, TOU < 50 kW"
+        #return "Ontario TOU"
 
 
 class DynamicPricingTariff(Tariff):
@@ -323,10 +323,10 @@ class AvailableTariffsEnum(Enum):
     NO_TARIFF = NoTariff
     FLAT_RATE = FlatRateTariff
     HYDRO_QUEBEC_D = HydroQuebecDTariff
-    ONTARIO_TOU = OntarioTOUTariff
+    ONTARIO_GEN_TOU = OntarioTOUTariff
     HYDRO_QUEBEC_M = HydroQuebecMTariff
     DYNAMIC_PRICING = DynamicPricingTariff
-    # HOEP_MARKET = HOEPMarketTariff
+    #HOEP_MARKET = HOEPMarketTariff
 
     @classmethod
     def list_tariffs(cls):

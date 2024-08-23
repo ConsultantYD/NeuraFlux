@@ -13,7 +13,7 @@ from neuraflux.schemas.agency import (
     AgentDataConfig,
     RLConfig,
 )
-from neuraflux.schemas.asset_config import BuildingConfig
+from neuraflux.schemas.asset_config import BuildingConfig, EnergyStorageConfig
 from neuraflux.schemas.simulation import (
     SimulationConfig,
     SimulationGeographicalConfig,
@@ -43,7 +43,7 @@ GEO_CONFIG = SimulationGeographicalConfig(city=CityEnum.from_string(city_str))
 # -----------------------------------------------------------------
 # AGENT CONTROL
 AGENT_CONTROL_CONFIG = AgentControlConfig(
-    n_controllers=3,
+    n_controllers=1,
     n_trajectory_samples=1,
     trajectory_length=6,
     reinforcement_learning=RLConfig(
@@ -72,8 +72,8 @@ AGENT_DATA_CONFIG = AgentDataConfig(
 )
 
 # GLOBAL AGENT CONFIG
-TARIFF_STR = "ONTARIO_TOU"
-PRODUCT_STR = "SIMPLE_TARIFF_OPT"
+TARIFF_STR = "NO_TARIFF"
+PRODUCT_STR = "DYNAMIC_PRICING"
 AGENT_CONFIG = AgentConfig(
     asset_metadata={
         "address": "123 Fake St, Anytown, CA",
@@ -91,12 +91,13 @@ AGENT_CONFIG = AgentConfig(
 # -----------------------------------------------------------------
 # SIMULATION CONFIGURATION SECTION
 # -----------------------------------------------------------------
-ASSET_CONFIG = BuildingConfig(
+ASSET_CONFIG = EnergyStorageConfig(
     initial_state_dict=ENERGY_STORAGE_DEF_INITIAL_STATE_DICT,
+    control_power_mapping=ENERGY_STORAGE_DEF_CMP
 )
 
 SIMULATION_CONFIG = SimulationConfig(
-    directory="Sim1",
+    directory="simulations/NewSim1",
     time=TIME_CONFIG,
     geography=GEO_CONFIG,
     agents={"Agent001": AGENT_CONFIG},

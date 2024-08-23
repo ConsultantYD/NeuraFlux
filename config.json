@@ -1,20 +1,31 @@
 {
     "agents": {
         "Agent001": {
+            "asset_metadata": {
+                "address": "123 Fake St, Anytown, CA",
+                "timezone": "America/Toronto",
+                "location": [
+                    43.7,
+                    -79.42,
+                    0.0
+                ],
+                "owner": "John Doe"
+            },
             "control": {
-                "n_controllers": 3,
+                "n_controllers": 1,
                 "n_trajectory_samples": 1,
                 "trajectory_length": 6,
                 "reinforcement_learning": {
                     "state_signals": null,
                     "action_size": null,
+                    "n_controllers": null,
                     "history_length": 6,
                     "add_hourly_time_features_to_state": true,
                     "add_daily_time_features_to_state": true,
                     "add_weekly_time_features_to_state": false,
                     "add_monthly_time_features_to_state": false,
                     "discount_factor": 0.99,
-                    "n_target_updates": 1,
+                    "n_target_updates": 10,
                     "n_sampling_iters": 5,
                     "experience_sampling_size": 500,
                     "learning_rate": 0.00025,
@@ -24,6 +35,7 @@
                     "prioritized_replay_alpha": 0.6
                 }
             },
+            "components_metadata": [],
             "data": {
                 "control_power_mapping": {
                     "0": -250.0,
@@ -31,110 +43,168 @@
                     "2": 250.0
                 },
                 "tracked_signals": [
-                    "temperature_1",
-                    "temperature_2",
-                    "temperature_3",
-                    "hvac_1",
-                    "hvac_2",
-                    "hvac_3",
-                    "cool_setpoint",
-                    "heat_setpoint",
-                    "occupancy"
+                    "internal_energy",
+                    "market_price_t",
+                    "market_price_t+1",
+                    "market_price_t+2",
+                    "market_price_t+3",
+                    "market_price_t+4",
+                    "market_price_t+5",
+                    "market_price_t+6"
                 ],
                 "signals_info": {
-                    "temperature_1": {
+                    "internal_energy": {
+                        "min_value": 0.0,
+                        "max_value": 500.0,
+                        "scalable": true,
+                        "source": "asset",
                         "tags": [
                             "X",
                             "S"
                         ],
-                        "temporal_knowledge": 0,
-                        "min_value": 10,
-                        "max_value": 40,
-                        "scalable": true
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
                     },
-                    "temperature_2": {
+                    "market_price_t": {
+                        "min_value": null,
+                        "max_value": null,
+                        "scalable": false,
+                        "source": "product",
                         "tags": [
-                            "X",
+                            "W",
                             "S"
                         ],
-                        "temporal_knowledge": 0,
-                        "min_value": 10,
-                        "max_value": 40,
-                        "scalable": true
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
                     },
-                    "temperature_3": {
+                    "market_price_t+1": {
+                        "min_value": null,
+                        "max_value": null,
+                        "scalable": false,
+                        "source": "product",
                         "tags": [
-                            "X",
+                            "W",
                             "S"
                         ],
-                        "temporal_knowledge": 0,
-                        "min_value": 10,
-                        "max_value": 40,
-                        "scalable": true
-                    },
-                    "hvac_1": {
-                        "tags": [
-                            "U"
+                        "temporal_knowledge": [
+                            null,
+                            0
                         ]
                     },
-                    "hvac_2": {
-                        "tags": [
-                            "U"
-                        ]
-                    },
-                    "hvac_3": {
-                        "tags": [
-                            "U"
-                        ]
-                    },
-                    "cool_setpoint": {
+                    "market_price_t+2": {
+                        "min_value": null,
+                        "max_value": null,
+                        "scalable": false,
+                        "source": "product",
                         "tags": [
                             "W",
                             "S"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
                         ]
                     },
-                    "heat_setpoint": {
+                    "market_price_t+3": {
+                        "min_value": null,
+                        "max_value": null,
+                        "scalable": false,
+                        "source": "product",
                         "tags": [
                             "W",
                             "S"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
                         ]
                     },
-                    "occupancy": {
+                    "market_price_t+4": {
+                        "min_value": null,
+                        "max_value": null,
+                        "scalable": false,
+                        "source": "product",
                         "tags": [
                             "W",
                             "S"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    },
+                    "market_price_t+5": {
+                        "min_value": null,
+                        "max_value": null,
+                        "scalable": false,
+                        "source": "product",
+                        "tags": [
+                            "W",
+                            "S"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    },
+                    "market_price_t+6": {
+                        "min_value": null,
+                        "max_value": null,
+                        "scalable": false,
+                        "source": "product",
+                        "tags": [
+                            "W",
+                            "S"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
                         ]
                     }
                 }
             },
-            "product": "SIMPLE_TARIFF_OPT",
-            "tariff": "ONTARIO_TOU"
+            "product": "DYNAMIC_PRICING",
+            "tariff": "NO_TARIFF"
         }
     },
     "assets": {
         "Agent001": {
-            "asset_type": "commercial building",
+            "asset_type": "energy storage",
+            "core_variables": [
+                "timestamp",
+                "control",
+                "power",
+                "outside_air_temperature"
+            ],
             "initial_state_dict": {
-                "temperature": [
-                    21.0,
-                    21.0,
-                    21.0
-                ],
-                "hvac": [
-                    0,
-                    0,
-                    0
-                ]
+                "internal_energy": 250.0
             },
-            "n_controls": 3
+            "n_controls": 1,
+            "capacity_kwh": 500.0,
+            "control_power_mapping": {
+                "0": -250.0,
+                "1": 0.0,
+                "2": 250.0
+            },
+            "efficiency_in": {
+                "value": 1.0
+            },
+            "efficiency_out": {
+                "value": 1.0
+            },
+            "decay_factor": 1.0,
+            "tracked_variables": [
+                "internal_energy"
+            ]
         }
     },
-    "data": {
-        "base_dir": "Data Module"
-    },
-    "directory": "simulations/Sim1",
+    "directory": "simulations/NewSim1",
     "geography": {
-        "city": "Toronto"
+        "city": "Chicago"
     },
     "seed": 42,
     "time": {

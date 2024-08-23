@@ -224,7 +224,7 @@ class Simulation:
             # ASSET INSTANTIATION
             asset_type = asset_config_dict.asset_type
             match asset_type:
-                case "building":
+                case "commercial building":
                     asset_config = BuildingConfig.model_validate(asset_config_dict)
                     asset = Building(
                         asset_uid, asset_config, self.time_info.t, ext_temperature

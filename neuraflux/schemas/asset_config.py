@@ -28,13 +28,13 @@ class AvailableAssetsEnum(str, Enum):
     def get_client_facing_name_mapping(cls) -> dict[str, str]:
         mapping_dict = {
             cls.GENERIC: "Generic Asset",
-            cls.COMMERCIAL_BUILDING: "🏢 Commercial Building",
-            cls.ELECTRIC_VEHICLE: "🚙 Electric Vehicle",
-            cls.EV_CHARGER: "🔌 Electric Vehicle Charger",
-            cls.ENERGY_STORAGE: "🔋 Energy Storage",
-            cls.RESIDENTIAL_BUILDING: "🏠 Residential Building",
-            cls.SOLAR_PANEL: "☀️ Solar Panel",
-            cls.WIND_TURBINE: "💨 Wind Turbine",
+            cls.COMMERCIAL_BUILDING: "Commercial Building",
+            cls.ELECTRIC_VEHICLE: "Electric Vehicle",
+            cls.EV_CHARGER: "Electric Vehicle Charger",
+            cls.ENERGY_STORAGE: "Energy Storage",
+            cls.RESIDENTIAL_BUILDING: "Residential Building",
+            cls.SOLAR_PANEL: "Solar Panel",
+            cls.WIND_TURBINE: "Wind Turbine",
         }
         return mapping_dict
 
@@ -57,7 +57,7 @@ class AvailableAssetsEnum(str, Enum):
     @classmethod
     def get_asset_from_client_facing_name(cls, client_facing_name: str) -> str:
         for asset, name in cls.get_client_facing_name_mapping().items():
-            if name == client_facing_name:
+            if name.lower() == client_facing_name.lower():
                 return asset
         raise ValueError("Client facing name not found.")
 
@@ -177,7 +177,7 @@ class EnergyStorageEfficiency(BaseSchema):
 class EnergyStorageConfig(AssetConfig):
     asset_type: AvailableAssetsEnum = AvailableAssetsEnum.ENERGY_STORAGE
     capacity_kwh: float = 500.0
-    control_power_mapping: dict[int, float] = {1: -100, 2: 0, 3: 100}
+    control_power_mapping: dict[int, float] = {0: -100, 1: 0, 2: 100}
     efficiency_in: EnergyStorageEfficiency = EnergyStorageEfficiency()
     efficiency_out: EnergyStorageEfficiency = EnergyStorageEfficiency()
     decay_factor: float = 1.0

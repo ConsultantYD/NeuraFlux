@@ -1,4 +1,5 @@
 from enum import Enum, unique
+from typing import Any
 
 from .base import BaseSchema
 
@@ -56,12 +57,20 @@ class SignalTags(str, Enum):
     RL_STATE: str = "S"  # Signal to use in the RL state
 
 
+@unique
+class SignalSource(str, Enum):
+    ASSET: str = "asset"
+    EXTERNAL_PROVIDER: str = "external_provider"
+    PRODUCT: str = "product"
+
+
 class SignalInfo(BaseSchema):
-    tags: list[SignalTags] = []
-    temporal_knowledge: int = 0
     min_value: float | int | None = None
     max_value: float | int | None = None
     scalable: bool = False
+    source: SignalSource = SignalSource.ASSET
+    tags: list[SignalTags] = []
+    temporal_knowledge: tuple = (None, 0)
 
 
 class AgentControlConfig(BaseSchema):
@@ -78,7 +87,14 @@ class AgentDataConfig(BaseSchema):
 
 
 class AgentConfig(BaseSchema):
+    asset_metadata: dict[str, Any] = {
+        "address": "123 Fake St, Anytown, CA",
+        "timezone": "America/Toronto",
+        "location": (43.7, -79.42, 0.0),
+        "owner": "John Doe",
+    }
     control: AgentControlConfig
+    components_metadata: list[dict[str, Any]] = []
     data: AgentDataConfig
     product: str
     tariff: str
