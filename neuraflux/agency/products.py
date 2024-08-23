@@ -395,7 +395,7 @@ class AvailableProductsEnum(Enum):
     DYNAMIC_PRICING = CAISODynamicPricingProduct
     EV_DR = EvDrTouGhgProduct
     HVAC_BUILDING = HVACBuildingProduct
-    HOEP_MARKET = HOEPMarketProduct
+    # HOEP_MARKET = HOEPMarketProduct
     SIMPLE_TARIFF_OPT = SimpleTariffOptimizationProduct
 
     @classmethod

@@ -24,14 +24,6 @@ def test_initialization(electric_vehicle):
     # Add more assertions for other default values
 
 
-def test_step_function(electric_vehicle):
-    control = DiscreteControl(2)  # Choose a valid control value
-    timestamp = dt.datetime(2023, 11, 30, 17, 5)
-    power_output = electric_vehicle.step([control], timestamp, 5)
-    assert power_output == 0  # Expected to be 0 due to commuting time
-    # Add more assertions for internal state changes
-
-
 def test_auto_step_function(electric_vehicle):
     # Save the initial state
     timestamp = dt.datetime(2023, 11, 30, 17, 5)

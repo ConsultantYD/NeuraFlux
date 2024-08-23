@@ -84,7 +84,7 @@ def test_data_augmentation(data_module):
     assert "energy" in augmented_df.columns, "Energy column should be added"
 
     # Augment DataFrame with tariff data
-    tariff_str = "ONTARIO_TOU"
+    tariff_str = "ONTARIO_GEN_TOU"
     augmented_df = data_module.augment_dataframe_with_tariff_data(
         augmented_df, tariff_str
     )
