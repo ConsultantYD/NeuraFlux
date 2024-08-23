@@ -1,0 +1,145 @@
+{
+    "agents": {
+        "Agent001": {
+            "control": {
+                "n_controllers": 3,
+                "n_trajectory_samples": 1,
+                "trajectory_length": 6,
+                "reinforcement_learning": {
+                    "state_signals": null,
+                    "action_size": null,
+                    "history_length": 6,
+                    "add_hourly_time_features_to_state": true,
+                    "add_daily_time_features_to_state": true,
+                    "add_weekly_time_features_to_state": false,
+                    "add_monthly_time_features_to_state": false,
+                    "discount_factor": 0.99,
+                    "n_target_updates": 1,
+                    "n_sampling_iters": 5,
+                    "experience_sampling_size": 500,
+                    "learning_rate": 0.00025,
+                    "n_fit_epochs": 1,
+                    "tf_batch_size": 8,
+                    "replay_buffer_size": 20000,
+                    "prioritized_replay_alpha": 0.6
+                }
+            },
+            "data": {
+                "control_power_mapping": {
+                    "0": -250.0,
+                    "1": 0.0,
+                    "2": 250.0
+                },
+                "tracked_signals": [
+                    "temperature_1",
+                    "temperature_2",
+                    "temperature_3",
+                    "hvac_1",
+                    "hvac_2",
+                    "hvac_3",
+                    "cool_setpoint",
+                    "heat_setpoint",
+                    "occupancy"
+                ],
+                "signals_info": {
+                    "temperature_1": {
+                        "tags": [
+                            "X",
+                            "S"
+                        ],
+                        "temporal_knowledge": 0,
+                        "min_value": 10,
+                        "max_value": 40,
+                        "scalable": true
+                    },
+                    "temperature_2": {
+                        "tags": [
+                            "X",
+                            "S"
+                        ],
+                        "temporal_knowledge": 0,
+                        "min_value": 10,
+                        "max_value": 40,
+                        "scalable": true
+                    },
+                    "temperature_3": {
+                        "tags": [
+                            "X",
+                            "S"
+                        ],
+                        "temporal_knowledge": 0,
+                        "min_value": 10,
+                        "max_value": 40,
+                        "scalable": true
+                    },
+                    "hvac_1": {
+                        "tags": [
+                            "U"
+                        ]
+                    },
+                    "hvac_2": {
+                        "tags": [
+                            "U"
+                        ]
+                    },
+                    "hvac_3": {
+                        "tags": [
+                            "U"
+                        ]
+                    },
+                    "cool_setpoint": {
+                        "tags": [
+                            "W",
+                            "S"
+                        ]
+                    },
+                    "heat_setpoint": {
+                        "tags": [
+                            "W",
+                            "S"
+                        ]
+                    },
+                    "occupancy": {
+                        "tags": [
+                            "W",
+                            "S"
+                        ]
+                    }
+                }
+            },
+            "product": "SIMPLE_TARIFF_OPT",
+            "tariff": "ONTARIO_TOU"
+        }
+    },
+    "assets": {
+        "Agent001": {
+            "asset_type": "commercial building",
+            "initial_state_dict": {
+                "temperature": [
+                    21.0,
+                    21.0,
+                    21.0
+                ],
+                "hvac": [
+                    0,
+                    0,
+                    0
+                ]
+            },
+            "n_controls": 3
+        }
+    },
+    "data": {
+        "base_dir": "Data Module"
+    },
+    "directory": "simulations/Sim1",
+    "geography": {
+        "city": "Toronto"
+    },
+    "seed": 42,
+    "time": {
+        "start_time": "2023-01-01_00-00-00",
+        "end_time": "2023-06-1_00-00-00",
+        "step_size_s": 300
+    }
+}
