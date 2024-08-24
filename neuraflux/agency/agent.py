@@ -17,6 +17,7 @@ from neuraflux.global_variables import (
     LOG_SIM_T_KEY,
     TABLE_CONTROLS,
     TABLE_SIGNALS,
+    TABLE_SIGNALS_SHADOW,
     TABLE_WEATHER,
 )
 from neuraflux.local_typing import AssetType, UidType
@@ -396,14 +397,26 @@ class Agent:
     def asset_data_collection(self) -> None:
         # Asset Signals Definition
         signals_dict = {}
+        shadow_signals_dict = {}
         for signal in self.config.data.tracked_signals:
             signal_value = self.asset.get_signal(signal)
+            shadow_signal_value = self.shadow_asset.get_signal(signal)
+
+            # SIGNAL
             # Store array-like values separately
             if isinstance(signal_value, (list, tuple, np.ndarray)):
                 for i, value in enumerate(signal_value):
                     signals_dict[signal + "_" + str(i + 1)] = value
             else:
                 signals_dict[signal] = signal_value
+
+            # SHADOW SIGNAL
+            # Store array-like values separately
+            if isinstance(shadow_signal_value, (list, tuple, np.ndarray)):
+                for i, value in enumerate(shadow_signal_value):
+                    shadow_signals_dict[signal + "_" + str(i + 1)] = value
+            else:
+                shadow_signals_dict[signal] = shadow_signal_value
 
         # Weather Data Definition
         weather_dict = {
@@ -412,6 +425,9 @@ class Agent:
 
         # Store both data in Agent's database
         self._push_asset_signal_data_to_db(signals_dict, self.time_info.t)
+        self._push_asset_signal_data_to_db(
+            shadow_signals_dict, self.time_info.t, shadow_asset=True
+        )
         self._push_weather_data_to_db(weather_dict, self.time_info.t)
 
         # Log
@@ -491,11 +507,13 @@ class Agent:
         self,
         signals_dict: dict[str, float | int | str],
         timestamp: dt.datetime,
+        shadow_asset: bool = False,
     ) -> None:
         signal_names_list = self.config.data.tracked_signals
+        table_name = TABLE_SIGNALS_SHADOW if shadow_asset else TABLE_SIGNALS
         self.data_module.store_data_in_table_at_time(
             self.uid,
-            TABLE_SIGNALS,
+            table_name,
             timestamp,
             signals_dict,
             data_columns=signal_names_list,

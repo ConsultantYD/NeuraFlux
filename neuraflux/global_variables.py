@@ -8,6 +8,7 @@ FILE_REAL_REPLAY_BUFFER = "real_replay_buffer"
 FILE_SIM_REPLAY_BUFFER = "sim_replay_buffer"
 
 TABLE_SIGNALS = "asset_signals"
+TABLE_SIGNALS_SHADOW = "shadow_asset_signals"
 TABLE_CONTROLS = "agent_controls"
 TABLE_WEATHER = "weather"
 TABLE_DQN_TRAINING = "ddqn_training"
