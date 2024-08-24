@@ -57,6 +57,10 @@ class Agent:
 
         # Shortcuts
         self.cpm = self.config.data.control_power_mapping
+        
+        # Initialize agent's asset and shadow asset as None
+        self.asset = None
+        self.shadow_asset = None
 
     # -----------------------------------------------------------------------
     # DATA RETRIEVAL
@@ -395,14 +399,11 @@ class Agent:
     # UTILITIES AND SIMULATION INTERACTIONS
     # -----------------------------------------------------------------------
     def asset_data_collection(self) -> None:
-        # Asset Signals Definition
+        # Asset signals collection
         signals_dict = {}
-        shadow_signals_dict = {}
         for signal in self.config.data.tracked_signals:
             signal_value = self.asset.get_signal(signal)
-            shadow_signal_value = self.shadow_asset.get_signal(signal)
 
-            # SIGNAL
             # Store array-like values separately
             if isinstance(signal_value, (list, tuple, np.ndarray)):
                 for i, value in enumerate(signal_value):
@@ -410,24 +411,30 @@ class Agent:
             else:
                 signals_dict[signal] = signal_value
 
-            # SHADOW SIGNAL
-            # Store array-like values separately
-            if isinstance(shadow_signal_value, (list, tuple, np.ndarray)):
-                for i, value in enumerate(shadow_signal_value):
-                    shadow_signals_dict[signal + "_" + str(i + 1)] = value
-            else:
-                shadow_signals_dict[signal] = shadow_signal_value
+        # Shadow asset signals collection
+        if self.shadow_asset is not None:
+            shadow_signals_dict = {}
+            for signal in self.config.data.tracked_signals:
+                signal_value = self.shadow_asset.get_signal(signal)
+
+                # Store array-like values separately
+                if isinstance(signal_value, (list, tuple, np.ndarray)):
+                    for i, value in enumerate(signal_value):
+                        shadow_signals_dict[signal + "_" + str(i + 1)] = value
+                else:
+                    shadow_signals_dict[signal] = signal_value
 
         # Weather Data Definition
         weather_dict = {
             "outside_air_temperature": self.weather_info.temperature,
         }
 
-        # Store both data in Agent's database
+        # Storedata in Agent's database
         self._push_asset_signal_data_to_db(signals_dict, self.time_info.t)
-        self._push_asset_signal_data_to_db(
-            shadow_signals_dict, self.time_info.t, shadow_asset=True
-        )
+        if self.shadow_asset is not None:
+            self._push_asset_signal_data_to_db(
+                shadow_signals_dict, self.time_info.t, shadow_asset=True
+            )
         self._push_weather_data_to_db(weather_dict, self.time_info.t)
 
         # Log
