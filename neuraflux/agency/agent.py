@@ -16,6 +16,7 @@ from neuraflux.global_variables import (
     LOG_METHOD_KEY,
     LOG_SIM_T_KEY,
     TABLE_CONTROLS,
+    TABLE_CONTROLS_SHADOW,
     TABLE_SIGNALS,
     TABLE_SIGNALS_SHADOW,
     TABLE_WEATHER,
@@ -57,7 +58,7 @@ class Agent:
 
         # Shortcuts
         self.cpm = self.config.data.control_power_mapping
-        
+
         # Initialize agent's asset and shadow asset as None
         self.asset = None
         self.shadow_asset = None
@@ -544,16 +545,19 @@ class Agent:
         del weather_dict
 
     def _push_control_data_to_db(
-        self, control_dict: dict[str, int], timestamp: dt.datetime
+        self,
+        control_dict: dict[str, int],
+        timestamp: dt.datetime,
+        shadow_asset: bool = False,
     ) -> None:
         control_keys = [
             CONTROL_KEY + "_" + str(c + 1)
             for c in range(self.config.control.n_controllers)
         ]
-
+        table_name = TABLE_CONTROLS_SHADOW if shadow_asset else TABLE_CONTROLS
         self.data_module.store_data_in_table_at_time(
             self.uid,
-            TABLE_CONTROLS,
+            table_name,
             timestamp,
             control_dict,
             data_columns=control_keys,
