@@ -1,7 +1,7 @@
-from copy import copy
 import datetime as dt
 import json
 import logging as log
+from copy import copy
 
 import numpy as np
 import pandas as pd
@@ -517,14 +517,12 @@ class Agent:
         asset_config = copy(self.asset.config)
         initial_state_dict = copy(asset_config.initial_state_dict)
         data = self.get_data(start_time=timestamp, end_time=timestamp)
-        
+
         new_initial_state_dict = self._reverse_initial_state(initial_state_dict, data)
         asset_config.initial_state_dict = new_initial_state_dict
         oat = data["outside_air_temperature"].values[0]
-        
-        print(data)
         return AssetClass("temp_copy", asset_config, timestamp, oat)
-        
+
     def _reverse_initial_state(self, init_variables, df):
         # Reconstruct the initial state dictionary
         new_state_dict = {}
@@ -532,7 +530,9 @@ class Agent:
             # Check if the variable is supposed to be an array/list
             if isinstance(init_variables[variable], (list, tuple, np.ndarray)):
                 # Find all columns in the dataframe that start with this variable name and a suffix
-                suffix_columns = [col for col in df.columns if col.startswith(variable + "_")]
+                suffix_columns = [
+                    col for col in df.columns if col.startswith(variable + "_")
+                ]
                 # Extract the values for these columns and form a list or array
                 if len(suffix_columns) > 0:
                     values = [df[col].iloc[0] for col in sorted(suffix_columns)]
