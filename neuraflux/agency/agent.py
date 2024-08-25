@@ -1,6 +1,7 @@
 import datetime as dt
 import json
 import logging as log
+from copy import copy
 
 import numpy as np
 import pandas as pd
@@ -16,7 +17,9 @@ from neuraflux.global_variables import (
     LOG_METHOD_KEY,
     LOG_SIM_T_KEY,
     TABLE_CONTROLS,
+    TABLE_CONTROLS_SHADOW,
     TABLE_SIGNALS,
+    TABLE_SIGNALS_SHADOW,
     TABLE_WEATHER,
 )
 from neuraflux.local_typing import AssetType, UidType
@@ -56,6 +59,10 @@ class Agent:
 
         # Shortcuts
         self.cpm = self.config.data.control_power_mapping
+
+        # Initialize agent's asset and shadow asset as None
+        self.asset = None
+        self.shadow_asset = None
 
     # -----------------------------------------------------------------------
     # DATA RETRIEVAL
@@ -394,10 +401,11 @@ class Agent:
     # UTILITIES AND SIMULATION INTERACTIONS
     # -----------------------------------------------------------------------
     def asset_data_collection(self) -> None:
-        # Asset Signals Definition
+        # Asset signals collection
         signals_dict = {}
         for signal in self.config.data.tracked_signals:
             signal_value = self.asset.get_signal(signal)
+
             # Store array-like values separately
             if isinstance(signal_value, (list, tuple, np.ndarray)):
                 for i, value in enumerate(signal_value):
@@ -405,13 +413,30 @@ class Agent:
             else:
                 signals_dict[signal] = signal_value
 
+        # Shadow asset signals collection
+        if self.shadow_asset is not None:
+            shadow_signals_dict = {}
+            for signal in self.config.data.tracked_signals:
+                signal_value = self.shadow_asset.get_signal(signal)
+
+                # Store array-like values separately
+                if isinstance(signal_value, (list, tuple, np.ndarray)):
+                    for i, value in enumerate(signal_value):
+                        shadow_signals_dict[signal + "_" + str(i + 1)] = value
+                else:
+                    shadow_signals_dict[signal] = signal_value
+
         # Weather Data Definition
         weather_dict = {
             "outside_air_temperature": self.weather_info.temperature,
         }
 
-        # Store both data in Agent's database
+        # Storedata in Agent's database
         self._push_asset_signal_data_to_db(signals_dict, self.time_info.t)
+        if self.shadow_asset is not None:
+            self._push_asset_signal_data_to_db(
+                shadow_signals_dict, self.time_info.t, shadow_asset=True
+            )
         self._push_weather_data_to_db(weather_dict, self.time_info.t)
 
         # Log
@@ -485,17 +510,60 @@ class Agent:
         self.weather_info = weather_info
 
     # -----------------------------------------------------------------------
+    # ASSET-BASED METHODS
+    # -----------------------------------------------------------------------
+    def return_asset_copy_from_snapshot(self, timestamp: dt.datetime) -> AssetType:
+        AssetClass = self.asset.__class__
+        asset_config = copy(self.asset.config)
+        initial_state_dict = copy(asset_config.initial_state_dict)
+        data = self.get_data(start_time=timestamp, end_time=timestamp)
+
+        new_initial_state_dict = self._reverse_initial_state(initial_state_dict, data)
+        asset_config.initial_state_dict = new_initial_state_dict
+        oat = data["outside_air_temperature"].values[0]
+        return AssetClass("temp_copy", asset_config, timestamp, oat)
+
+    def _reverse_initial_state(self, init_variables, df):
+        # Reconstruct the initial state dictionary
+        new_state_dict = {}
+        for variable in init_variables:
+            # Check if the variable is supposed to be an array/list
+            if isinstance(init_variables[variable], (list, tuple, np.ndarray)):
+                # Find all columns in the dataframe that start with this variable name and a suffix
+                suffix_columns = [
+                    col for col in df.columns if col.startswith(variable + "_")
+                ]
+                # Extract the values for these columns and form a list or array
+                if len(suffix_columns) > 0:
+                    values = [df[col].iloc[0] for col in sorted(suffix_columns)]
+                    # Check the type to maintain consistency with the original
+                    if isinstance(init_variables[variable], list):
+                        new_state_dict[variable] = values
+                    elif isinstance(init_variables[variable], tuple):
+                        new_state_dict[variable] = tuple(values)
+                    elif isinstance(init_variables[variable], np.ndarray):
+                        new_state_dict[variable] = np.array(values)
+            else:
+                # For non-array types, directly take the value from the dataframe
+                if variable in df.columns:
+                    new_state_dict[variable] = df[variable].iloc[0]
+
+        return new_state_dict
+
+    # -----------------------------------------------------------------------
     # PRIVATE METHODS
     # -----------------------------------------------------------------------
     def _push_asset_signal_data_to_db(
         self,
         signals_dict: dict[str, float | int | str],
         timestamp: dt.datetime,
+        shadow_asset: bool = False,
     ) -> None:
         signal_names_list = self.config.data.tracked_signals
+        table_name = TABLE_SIGNALS_SHADOW if shadow_asset else TABLE_SIGNALS
         self.data_module.store_data_in_table_at_time(
             self.uid,
-            TABLE_SIGNALS,
+            table_name,
             timestamp,
             signals_dict,
             data_columns=signal_names_list,
@@ -519,16 +587,19 @@ class Agent:
         del weather_dict
 
     def _push_control_data_to_db(
-        self, control_dict: dict[str, int], timestamp: dt.datetime
+        self,
+        control_dict: dict[str, int],
+        timestamp: dt.datetime,
+        shadow_asset: bool = False,
     ) -> None:
         control_keys = [
             CONTROL_KEY + "_" + str(c + 1)
             for c in range(self.config.control.n_controllers)
         ]
-
+        table_name = TABLE_CONTROLS_SHADOW if shadow_asset else TABLE_CONTROLS
         self.data_module.store_data_in_table_at_time(
             self.uid,
-            TABLE_CONTROLS,
+            table_name,
             timestamp,
             control_dict,
             data_columns=control_keys,
