@@ -24,7 +24,9 @@ from neuraflux.global_variables import (
     POWER_KEY,
     PRICE_KEY,
     TABLE_CONTROLS,
+    TABLE_CONTROLS_SHADOW,
     TABLE_SIGNALS,
+    TABLE_SIGNALS_SHADOW,
     TABLE_WEATHER,
 )
 from neuraflux.local_typing import (
@@ -86,18 +88,19 @@ class DataModule(Module):
         product_data: bool = True,
         weather_data: bool = True,
         time_features: bool = False,
+        shadow_asset: bool = False,
     ) -> pd.DataFrame:
         df = None
 
         # Signal data
         if signals_data:
-            df = self.get_data_from_table(uid, TABLE_SIGNALS, start_time, end_time)
+            table = TABLE_SIGNALS_SHADOW if shadow_asset else TABLE_SIGNALS
+            df = self.get_data_from_table(uid, table, start_time, end_time)
 
         # Control data
         if controls_data:
-            df_controls = self.get_data_from_table(
-                uid, TABLE_CONTROLS, start_time, end_time
-            )
+            table = TABLE_CONTROLS_SHADOW if shadow_asset else TABLE_CONTROLS
+            df_controls = self.get_data_from_table(uid, table, start_time, end_time)
             if df is None:
                 df = df_controls
             else:
