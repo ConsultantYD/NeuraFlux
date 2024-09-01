@@ -10,6 +10,7 @@ from neuraflux.agency.control_module import ControlModule
 from neuraflux.agency.control_utils import softmax
 from neuraflux.agency.data_module import DataModule
 from neuraflux.agency.products import AvailableProductsEnum
+from neuraflux.agency.time_features import tf_all_cyclic
 from neuraflux.global_variables import (
     CONTROL_KEY,
     LOG_ENTITY_KEY,
@@ -20,6 +21,7 @@ from neuraflux.global_variables import (
     TABLE_CONTROLS_SHADOW,
     TABLE_SIGNALS,
     TABLE_SIGNALS_SHADOW,
+    TABLE_VIRTUAL_DQN_TRAINING,
     TABLE_WEATHER,
 )
 from neuraflux.local_typing import AssetType, UidType
@@ -355,6 +357,187 @@ class Agent:
 
         # Delete unused variables and force garbage collection
         del history, state_columns
+
+    def simulated_rl_training(
+        self,
+        start_time: dt.datetime | None = None,
+        end_time: dt.datetime | None = None,
+        training_name: str = "daily_training",
+    ) -> None:
+        # Variables def
+        rl_config = self.config.control.reinforcement_learning
+        history_len = rl_config.history_length
+        n_traj_samples = self.config.control.n_trajectory_samples
+        traj_len = self.config.control.trajectory_length
+
+        # Define start time based on previous trainings
+        if hasattr(self, "last_sim_rl_training_end"):
+            start_time = self.last_sim_rl_training_end - (
+                self.time_info.dt * history_len
+            )
+
+        # Download necessary data
+        df = self.get_data(start_time=start_time, end_time=end_time, time_features=True)
+
+        self.last_sim_rl_training_end = df.index[-1]
+
+        traj_counter = 0
+        print(
+            f"Simulating {n_traj_samples} trajectories for training from {df.index[0]} to {df.index[-1]}"
+        )
+        for t in df.index[:-history_len]:
+            for _ in range(n_traj_samples):
+                traj_counter += 1
+                # Get the data for the current time
+                df_0 = df.loc[df.index >= t].iloc[:history_len]
+
+                trajectory = self.sample_trajectory(
+                    df_0,
+                    traj_len,
+                    policy=self.apply_policy_random,
+                    policy_kwargs={},
+                    model=None,
+                )
+
+                # Push simulated data to replay buffer
+                self.push_data_as_rl_training_data(trajectory, simulation=True)
+
+                # Augment data with additional columns for future analytics
+                trajectory["model"] = "exact_asset_model"
+                trajectory["policy"] = "random"
+                trajectory["exec_time"] = dt.datetime.now(dt.UTC).isoformat()
+                trajectory["train_batch"] = training_name
+                trajectory["relative_index"] = range(-history_len + 1, traj_len + 1)
+                trajectory["is_real"] = [True] * history_len + [False] * traj_len
+                trajectory["traj_id"] = traj_counter
+
+                # Store each row in the database, itterating over rows as dicts
+                for idx, row in trajectory.iterrows():
+                    self.data_module.store_data_in_table_at_time(
+                        self.uid,
+                        TABLE_VIRTUAL_DQN_TRAINING + training_name,
+                        idx,
+                        row.to_dict(),
+                        data_columns=list(trajectory.columns),
+                    )
+
+        # PERFORM REINFORCEMENT LEARNING TRAINING
+        # Get state columns from the data module
+        state_columns = self.data_module.get_columns_with_tag(
+            self.config, SignalTags.RL_STATE
+        )
+        action_size = len(list(self.cpm.keys()))
+        self.control_module.rl_training(
+            self.uid,
+            self.config.control.reinforcement_learning,
+            self.time_info.t,
+            self.config.product,
+            state_columns,
+            action_size,
+        )
+
+        del df, state_columns
+
+    def sample_trajectory(
+        self,
+        df_0: pd.DataFrame,
+        trajectory_len: int,
+        policy: PolicyEnum,
+        policy_kwargs: dict,
+        model: callable,
+    ) -> pd.DataFrame:
+        # Work with a copy of the input dataframe
+        df = df_0.copy()
+        control_cols = [
+            CONTROL_KEY + "_" + str(i + 1) for i in range(self.asset.config.n_controls)
+        ]
+        index = df_0.index[-1]
+
+        # Define asset copy
+        asset_copy = self.return_asset_copy_from_snapshot(index)
+
+        # Preload weather data
+        final_index = index + dt.timedelta(minutes=5 * trajectory_len)
+        weather_df = self.data_module.get_data_from_table(
+            self.uid, TABLE_WEATHER, index + dt.timedelta(minutes=5), final_index
+        )
+        df = pd.concat([df, weather_df])
+
+        # Create trajectory sample
+        current_idx = index
+        for _ in range(trajectory_len):
+            next_idx = current_idx + dt.timedelta(minutes=5)
+
+            # Augment before to make sure policy has all it needs
+            df = self.asset.augment_df(df)
+            df = self.data_module.augment_dataframe_with_virtual_metering_data(
+                df, self.cpm
+            )
+            df = self.data_module.augment_dataframe_with_tariff_data(
+                df, self.config.tariff
+            )
+            df = self.data_module.augment_dataframe_with_product_data(
+                df, self.config.product
+            )
+            df = tf_all_cyclic(df)
+
+            control_values = list(policy(**policy_kwargs).values())
+            df.loc[current_idx, control_cols] = control_values
+            df[control_cols] = df[control_cols].astype("Int64")
+
+            df = self.asset.augment_df(df)
+            df = self.data_module.augment_dataframe_with_virtual_metering_data(
+                df, self.cpm
+            )
+            df = self.data_module.augment_dataframe_with_tariff_data(
+                df, self.config.tariff
+            )
+            df = self.data_module.augment_dataframe_with_product_data(
+                df, self.config.product
+            )
+            df = tf_all_cyclic(df)
+
+            # Asset signals collection
+            control_cols = [
+                CONTROL_KEY + "_" + str(i + 1)
+                for i in range(self.asset.config.n_controls)
+            ]
+            control_values_from_df = df.loc[current_idx, control_cols].values
+            controls_list = [DiscreteControl(int(c)) for c in control_values_from_df]
+            asset_copy.step(
+                control=controls_list,
+                timestamp=current_idx,
+                outside_air_temperature=df.loc[current_idx, "outside_air_temperature"],
+            )
+            signals_dict = {}
+            for signal in self.config.data.tracked_signals:
+                signal_value = asset_copy.get_signal(signal)
+
+                # Store array-like values separately
+                if isinstance(signal_value, (list, tuple, np.ndarray)):
+                    for i, value in enumerate(signal_value):
+                        signals_dict[signal + "_" + str(i + 1)] = value
+                else:
+                    signals_dict[signal] = signal_value
+            for k, v in signals_dict.items():
+                df.loc[next_idx, k] = v
+            # df = self.prediction_module.get_model_prediction(
+            #     self.uid, df, current_idx, next_idx
+            # )
+            # End prediction
+
+            current_idx = next_idx
+
+        # Update one last time df to avoid NaNs in next state
+        df = self.asset.augment_df(df)
+        df = self.data_module.augment_dataframe_with_virtual_metering_data(df, self.cpm)
+        df = self.data_module.augment_dataframe_with_tariff_data(df, self.config.tariff)
+        df = self.data_module.augment_dataframe_with_product_data(
+            df, self.config.product
+        )
+        df = tf_all_cyclic(df)
+
+        return df
 
     def push_data_as_rl_training_data(
         self, data: pd.DataFrame, simulation: bool = False

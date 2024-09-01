@@ -190,8 +190,23 @@ class Simulation:
                     agent.rl_training()
                     time_train_ends = dt.datetime.now(dt.UTC)
                     print(
-                        f"Training time (s): {(time_train_ends - time_train_starts).total_seconds()}"
+                        f"Real Training time (s): {(time_train_ends - time_train_starts).total_seconds()}"
                     )
+
+            # Simulated agent training loop
+            if (
+                elapsed_minutes % (60 * 24 * 1) == 0
+                and elapsed_minutes != 0
+                and elapsed_minutes >= 60 * 24 * 7
+            ):
+                print("Simulated training loop")
+                time_train_starts = dt.datetime.now(dt.UTC)
+                for uid, agent in self.agents.items():
+                    agent.simulated_rl_training()
+                time_train_ends = dt.datetime.now(dt.UTC)
+                print(
+                    f"   Sim Training time (s): {(time_train_ends - time_train_starts).total_seconds()}"
+                )
 
     def save(self) -> None:
         raise NotImplementedError
