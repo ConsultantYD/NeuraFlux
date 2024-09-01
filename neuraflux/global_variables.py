@@ -13,6 +13,7 @@ TABLE_CONTROLS = "agent_controls"
 TABLE_CONTROLS_SHADOW = "shadow_asset_controls"
 TABLE_WEATHER = "weather"
 TABLE_DQN_TRAINING = "ddqn_training"
+TABLE_VIRTUAL_DQN_TRAINING = "virtual_ddqn_training_"
 
 ENERGY_KEY = "energy"
 CUMULATIVE_ENERGY_KEY = "cumulative_energy"

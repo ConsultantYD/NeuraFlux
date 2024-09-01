@@ -49,6 +49,7 @@ class ControlModule(Module):
         product_str: str,
         state_columns: list[str],
         action_size: int,
+        simulation: bool = False,
     ) -> None:
         # Log the start of the training process
         log.debug(
@@ -61,7 +62,7 @@ class ControlModule(Module):
         )
 
         # Retrieve replay buffers
-        real_buffer = self.get_replay_buffer(uid, rl_config=rl_config, simulation=False)
+        buffer = self.get_replay_buffer(uid, rl_config=rl_config, simulation=simulation)
 
         # Obtain production Q estimator, using latest model
         available_models = self.get_available_models_in_registry(uid)
@@ -77,8 +78,8 @@ class ControlModule(Module):
 
         model_name = index.strftime("%y_%m_%d__%H_%M")
         for target_iterator in range(rl_config.n_target_updates):
-            q_estimator, real_buffer, err_list, times_dict = simple_training_loop(
-                replay_buffer_real=real_buffer,
+            q_estimator, buffer, err_list, times_dict = simple_training_loop(
+                replay_buffer_real=buffer,
                 q_estimator=q_estimator,
                 sampling_size=rl_config.experience_sampling_size,
                 n_sampling_iters=rl_config.n_sampling_iters,
@@ -109,24 +110,33 @@ class ControlModule(Module):
             training_df["n_fit_epochs"] = rl_config.n_fit_epochs
             training_df["tf_batch_size"] = rl_config.tf_batch_size
             training_df["uid"] = uid
+            training_df["is_simulation"] = simulation
             db_connection = self.create_connection_to_agent_db(uid)
+            table = (
+                "simulated_" + TABLE_DQN_TRAINING if simulation else TABLE_DQN_TRAINING
+            )
             add_dataframe_to_table(
                 training_df,
                 db_connection,
-                TABLE_DQN_TRAINING,
+                table,
                 index_col=None,
                 use_index=False,
             )
 
         # Convert time index to model name str
         self.push_model_to_registry(uid, model_name, q_estimator)
-        self.save_replay_buffer(uid, real_buffer, simulation=False)
+        self.save_replay_buffer(uid, buffer, simulation=simulation)
 
         # Update training summary
         training_summary = self.get_training_summary(uid)
-        if "n_trainings" not in training_summary:
-            training_summary["n_trainings"] = 0
-        training_summary["n_trainings"] += 1
+        if simulation:
+            if "n_real_trainings" not in training_summary:
+                training_summary["n_real_trainings"] = 0
+            training_summary["n_real_trainings"] += 1
+        else:
+            if "n_sim_trainings" not in training_summary:
+                training_summary["n_sim_trainings"] = 0
+            training_summary["n_sim_trainings"] += 1
         self.save_training_summary(uid, training_summary)
 
         # Log the start of the training process
@@ -135,13 +145,13 @@ class ControlModule(Module):
                 LOG_SIM_T_KEY: index,
                 LOG_ENTITY_KEY: "Control Module",
                 LOG_METHOD_KEY: "rl_training",
-                LOG_MESSAGE_KEY: "Training completed successfully.",
+                LOG_MESSAGE_KEY: f"Training (sim={simulation}) completed successfully.",
             }
         )
 
         # Delete unused variables and force garbage collection
         del (
-            real_buffer,
+            buffer,
             q_estimator,
             available_models,
             err_list,
