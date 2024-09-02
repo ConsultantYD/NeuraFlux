@@ -237,15 +237,19 @@ class Agent:
         q_factors = self.get_q_factors(rl_df)
         possible_actions = list(self.cpm.keys())
         control_data = {}
-        training_summary = self.control_module.get_training_summary(self.uid)
-        n_trainings = (
-            0
-            if "n_trainings" not in training_summary
-            else training_summary["n_trainings"]
-        )
 
         # Define epsilon for epsilon-greedy policy
-        epsilon = (20 - n_trainings) / 20 if epsilon is None else epsilon
+        if epsilon is None:
+            epsilon = 0.0  # Only simulation is exploratory
+
+            # training_summary = self.control_module.get_training_summary(self.uid)
+            # n_trainings = (
+            #    0
+            #    if "n_trainings" not in training_summary
+            #    else training_summary["n_trainings"]
+            # )
+            # epsilon = (20 - n_trainings) / 20 if epsilon is None else epsilon
+
         epsilon = np.clip(epsilon, 0, 1)
 
         # Loop over controllers and generate control data
@@ -362,6 +366,7 @@ class Agent:
         self,
         start_time: dt.datetime | None = None,
         end_time: dt.datetime | None = None,
+        n_samples: int | None = 100,
         training_name: str = "daily_training",
     ) -> None:
         # Variables def
@@ -385,7 +390,15 @@ class Agent:
         print(
             f"Simulating {n_traj_samples} trajectories for training from {df.index[0]} to {df.index[-1]}"
         )
-        for t in df.index[:-history_len]:
+
+        # Loop over all indexes if n_samples is None, else sample uniform
+        samples_batch = (
+            df.index[:-history_len]
+            if n_samples is None
+            else np.random.choice(df.index[:-history_len], n_samples, replace=False)
+        )
+
+        for t in samples_batch:
             for _ in range(n_traj_samples):
                 traj_counter += 1
                 # Get the data for the current time
@@ -394,9 +407,9 @@ class Agent:
                 trajectory = self.sample_trajectory(
                     df_0,
                     traj_len,
-                    policy=self.apply_policy_random,
-                    policy_kwargs={},
-                    model=None,
+                    # policy=self.apply_policy_random,
+                    # policy_kwargs={},
+                    # model=None,
                 )
 
                 # Push simulated data to replay buffer
@@ -442,9 +455,9 @@ class Agent:
         self,
         df_0: pd.DataFrame,
         trajectory_len: int,
-        policy: PolicyEnum,
-        policy_kwargs: dict,
-        model: callable,
+        # policy: PolicyEnum,
+        # policy_kwargs: dict,
+        # model: callable,
     ) -> pd.DataFrame:
         # Work with a copy of the input dataframe
         df = df_0.copy()
@@ -481,7 +494,15 @@ class Agent:
             )
             df = tf_all_cyclic(df)
 
-            control_values = list(policy(**policy_kwargs).values())
+            rl_seq_len = self.rl_config.history_length
+            delta_seconds_required = self.time_info.dt.total_seconds() * rl_seq_len
+            start_time = current_idx - dt.timedelta(seconds=delta_seconds_required)
+            rl_df = df.loc[start_time:current_idx]
+
+            #########
+            # control_values = list(policy(**policy_kwargs).values())
+            control_values = self.apply_policy_q_max(rl_df, epsilon=0.5, boltzmann=True)
+
             df.loc[current_idx, control_cols] = control_values
             df[control_cols] = df[control_cols].astype("Int64")
 

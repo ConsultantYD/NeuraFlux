@@ -201,8 +201,11 @@ class Simulation:
             ):
                 print("Simulated training loop")
                 time_train_starts = dt.datetime.now(dt.UTC)
+                n_samples = 100
+                if elapsed_minutes == 60 * 24 * 7:
+                    n_samples = 700
                 for uid, agent in self.agents.items():
-                    agent.simulated_rl_training()
+                    agent.simulated_rl_training(n_samples=n_samples)
                 time_train_ends = dt.datetime.now(dt.UTC)
                 print(
                     f"   Sim Training time (s): {(time_train_ends - time_train_starts).total_seconds()}"
