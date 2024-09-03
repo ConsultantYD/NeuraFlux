@@ -1,10 +1,15 @@
 import streamlit as st
-from global_variables import PRELOADED_AGENTS_DF_KEY, PRELOADED_AGENTS_KEY
+from global_variables import (
+    PRELOADED_AGENTS_DF_KEY,
+    PRELOADED_AGENTS_KEY,
+    PRELOADED_SHADOW_ASSET_DF_KEY,
+)
 from plot_utils import (
     create_radar_plot,
     plotly_colored_line_chart,
     plotly_filled_grad_line_chart,
     plotly_sankey_plot,
+    create_profit_hist_plot,
 )
 from sidebar_utils import generate_sidebar
 
@@ -21,12 +26,13 @@ st.divider()
 
 if agent_uid is not None:
     df = st.session_state[PRELOADED_AGENTS_DF_KEY][agent_uid]
+    shadow_df = st.session_state[PRELOADED_SHADOW_ASSET_DF_KEY][agent_uid]
 
     green_colorscale = [
         [0, "rgba(255, 255, 255, 0.1)"],  # White
         [1, "rgba(11, 145, 0, 0.5)"],  # Green
     ]
-    reversed_green_colorscale = green_colorscale = [
+    reversed_green_colorscale = [
         [0, "rgba(11, 145, 0, 0.5)"],  # Green
         [1, "rgba(255, 255, 255, 0.1)"],  # White
     ]
@@ -43,134 +49,166 @@ if agent_uid is not None:
 
     df["cum_reward"] = df["reward"].cumsum()
     df["avg_reward"] = df["reward"].rolling(window=12 * 24).mean()
-    df["cum_price"] = df["price_$"].cumsum()
-    df["avg_price"] = df["price_$"].rolling(window=12 * 24).mean()
-    df["cum_profit"] = -df["cum_price"].values / 750
-    df["avg_profit"] = df["avg_price"].values / 1.5
+    df["cum_cash_flow"] = -df["price_$"].cumsum()
+    df["avg_cash_flow"] = -df["price_$"].rolling(window=12 * 24).mean()
+    df["hourly_cash_flow"] = -df["price_$"].rolling(window=12).sum()
+
+    df["profit"] = shadow_df["price_$"] - df["price_$"]
+    df["hourly_profit"] = df["profit"].rolling(window=12).sum()
+    df["daily_profit"] = df["profit"].rolling(window=12 * 24).sum()
+    df["cum_profit"] = df["profit"].cumsum()
+    df["avg_profit"] = df["profit"].rolling(window=12 * 24).mean()
 
     # -----------------------------------------------------------------
     # PROFITABILITY
     # -----------------------------------------------------------------
-    st.write("##### Profitability")
+    st.write("#### Profitability")
     st.warning(
         "**Tangible value** gained from deploying the **NeuraFlux Agent** compared to the baseline, encompassing benefits from increased **efficiency**, **cost savings**, and new **financial opportunities**."
     )
 
-    col11, _, col12, _, col13, _ = st.columns(
-        (14, 2, 4, 1, 4, 1), vertical_alignment="center"
+    st.write("**Key Performance Indicators**")
+    _, col11, col12, col13, col14 = st.columns(
+        (1, 4, 4, 4, 4), vertical_alignment="center"
     )
 
     # Prepare figures and data
-    fig1 = plotly_colored_line_chart(
-        df,
-        "avg_profit",
-        show_legend=False,
-        height=200,
-        line_color="gold",
-    )
-    fig2 = plotly_filled_grad_line_chart(
+    fig1 = plotly_filled_grad_line_chart(
         df,
         "cum_profit",
         gold_colorscale,
         line_color="gold",
         show_legend=False,
-        height=200,
+        height=350,
     )
+    fig2 = plotly_colored_line_chart(
+        df,
+        "hourly_profit",
+        show_legend=False,
+        height=350,
+        line_color="gold",
+    )
+    fig4 = create_profit_hist_plot(df["daily_profit"].dropna(), height=350)
 
-    global_daily_average_profit = df["avg_profit"].mean()
-    last_daily_average_profit = df["avg_profit"].iloc[-288:].mean()
-    last_weekly_average_profit = df["avg_profit"].iloc[-2016:].mean()
+    last_h_profit = df["profit"].iloc[-12:].sum()
+    last_24h_profit = df["profit"].iloc[-12 * 24 :].sum()
+    last_7_days_profit = df["profit"].iloc[-12 * 24 * 7 :].sum()
+    last_30_days_profit = df["profit"].iloc[-12 * 24 * 30 :].sum()
+
+    all_h_windows_profit = df["profit"].rolling(window=12).sum()
+    all_24h_windows_profit = df["profit"].rolling(window=12 * 24).sum()
+    all_7_days_windows_profit = df["profit"].rolling(window=12 * 24 * 7).sum()
+    all_30_days_windows_profit = df["profit"].rolling(window=12 * 24 * 30).sum()
+
+    delta_h = last_h_profit - all_h_windows_profit.mean()
+    delta_24h = last_24h_profit - all_24h_windows_profit.mean()
+    delta_7days = last_7_days_profit - all_7_days_windows_profit.mean()
+    delta_30days = last_30_days_profit - all_30_days_windows_profit.mean()
+
+    delta_h_percentage = (delta_h / abs(all_h_windows_profit.mean())) * 100
+    delta_24h_percentage = (delta_24h / abs(all_24h_windows_profit.mean())) * 100
+    delta_7days_percentage = (delta_7days / abs(all_7_days_windows_profit.mean())) * 100
+    delta_30days_percentage = (
+        delta_30days / abs(all_30_days_windows_profit.mean())
+    ) * 100
 
     # Display Metrics
+    col11.metric(
+        # Center the text
+        "Last hour",
+        value=str(round(last_h_profit, 1)) + "$" if len(df) > 12 else "NA",
+        delta=str(round(delta_h, 1)) + "%" if len(df) > 12 else "-",
+        help="Percentage change from the average hourly profit.",
+    )
     col12.metric(
-        "Daily Average",
-        value="10.3$",
-        delta="+2.09",
+        "Last 24h",
+        value=str(round(last_24h_profit, 1)) + "$" if len(df) > 12 * 24 else "NA",
+        delta=str(round(delta_24h, 1)) + "%" if len(df) > 12 * 24 else "-",
+        help="Percentage change from the average daily profit.",
     )
-    col12.write("#####")
     col13.metric(
-        "Weekly Average",
-        value="68.9$",
-        delta=-0.32,
+        "Last 7 Days",
+        value=str(round(last_7_days_profit, 1)) + "$"
+        if len(df) > 12 * 24 * 7
+        else "NA",
+        delta=str(round(delta_7days, 1)) + "%" if len(df) > 12 * 24 * 7 else "-",
+        help="Percentage change from the average weekly profit.",
     )
-    col13.write("#####")
+    col14.metric(
+        "Last 30 Days",
+        value=str(round(last_30_days_profit, 1)) + "$"
+        if len(df) > 12 * 24 * 30
+        else "NA",
+        delta=str(round(delta_30days, 1)) + "%" if len(df) > 12 * 24 * 30 else "-",
+        help="Percentage change from the average monthly profit.",
+    )
 
     # Display Figures
-    with col11:
-        tab1, tab2, tab3, tab4 = st.tabs(
-            [
-                "**Cumulative**",
-                "**Net Margin**",
-                "**Breakdown**",
-                "**Risk & Volatility**",
-            ]
-        )
-        with tab1:
-            st.plotly_chart(fig2, use_container_width=True)
+    tab1, tab2, tab3, tab4 = st.tabs(
+        [
+            "**Cumulative**",
+            "**Net Margin**",
+            "**Breakdown**",
+            "**Risk & Volatility**",
+        ]
+    )
 
-        with tab2:
-            st.plotly_chart(fig1, use_container_width=True)
+    with tab1:
+        st.plotly_chart(fig1, use_container_width=True)
+
+    with tab2:
+        st.plotly_chart(fig2, use_container_width=True)
+
+    with tab4:
+        st.plotly_chart(fig4, use_container_width=True)
 
     # -----------------------------------------------------------------
     # FINANCIAL FLOW
     # -----------------------------------------------------------------
-    st.write("##### Financial Flow")
+    st.write("#### Financial Flow")
     st.success(
         "Analysis of the **NeuraFlux Agent**'s deployment on the stakeholder's **financial dynamics**, including **expenses**, **income**, and **liquidity** impacts."
     )
 
-    col21, _, col22, _, col23, _ = st.columns(
-        (24, 4, 8, 1, 8, 1), vertical_alignment="center"
+    st.write("**Key Performance Indicators**")
+    _, col21, col22, col23, col24 = st.columns(
+        (1, 4, 4, 4, 4), vertical_alignment="center"
     )
 
     # Prepare figures and data
-    fig1 = plotly_colored_line_chart(
+    fig1 = plotly_filled_grad_line_chart(
         df,
-        "avg_price",
-        show_legend=False,
-        height=200,
-    )
-    fig2 = plotly_filled_grad_line_chart(
-        df,
-        "cum_price",
-        reversed_green_colorscale,
+        "cum_cash_flow",
+        green_colorscale,
         line_color="green",
         show_legend=False,
-        height=200,
+        height=350,
+    )
+    fig2 = plotly_colored_line_chart(
+        df,
+        "hourly_cash_flow",
+        show_legend=False,
+        height=350,
     )
     sankey_fig = plotly_sankey_plot()
 
-    global_daily_average_profit = df["avg_price"].mean()
-    last_daily_average_profit = df["avg_price"].iloc[-288:].mean()
-    last_weekly_average_profit = df["avg_price"].iloc[-2016:].mean()
-
-    # Display Metrics
-    col22.metric(
-        "Current Period",
-        value="-963$",
-        delta="+12.3",
-    )
-    col22.write("#####")
-    col23.metric(
-        "Monthly Avg.",
-        value="-1262$",
-        delta="+18.35",
-    )
-    col23.write("#####")
-
     # Display Figures
-    with col21:
-        tab21, tab22, tab23 = st.tabs(
-            ["**Cash Flow**", "**Revenue Streams**", "**Expenses Allocation**"]
-        )
-        with tab21:
-            st.plotly_chart(fig2, use_container_width=True)
+    tab21, tab22, tab23, tab24 = st.tabs(
+        [
+            "**Cash Flow**",
+            "**Transactions**",
+            "**Revenue Streams**",
+            "**Expenses Allocation**",
+        ]
+    )
+    with tab21:
+        st.plotly_chart(fig1, use_container_width=True)
 
-        with tab22:
-            st.plotly_chart(fig1, use_container_width=True)
+    with tab22:
+        st.plotly_chart(fig2, use_container_width=True)
 
-        with tab23:
-            st.plotly_chart(sankey_fig, use_container_width=True)
+    with tab23:
+        st.plotly_chart(sankey_fig, use_container_width=True)
 
     # -----------------------------------------------------------------
     # REWARD PLOTS
