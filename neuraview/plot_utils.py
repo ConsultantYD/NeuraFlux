@@ -7,6 +7,66 @@ import igraph
 from igraph import Graph, EdgeSeq
 
 
+def create_profit_hist_plot(
+    data, num_bins: int = 20, height: int = 400, width: int = 600
+):
+    # Manually calculate histogram data using NumPy
+    hist_data = np.histogram(data, bins=num_bins, density=True)
+    bin_edges = hist_data[1]
+    bin_heights = hist_data[0]
+
+    # Create the figure with histogram using the same bin edges
+    fig = go.Figure(
+        data=[
+            go.Histogram(
+                x=data,
+                histnorm="probability density",
+                xbins=dict(
+                    start=bin_edges[0],  # Start at the first bin edge
+                    end=bin_edges[-1],  # End at the last bin edge
+                    size=(bin_edges[1] - bin_edges[0]),  # Bin size based on edges
+                ),
+                marker=dict(
+                    color="gold",
+                ),
+                opacity=0.3,
+            )
+        ]
+    )
+
+    # Create x and y coordinates for the line plot (outline)
+    x_outline = np.repeat(bin_edges, 2)[1:-1]
+    y_outline = np.repeat(bin_heights, 2)
+
+    # Add the line plot to trace the histogram's outline
+    fig.add_trace(
+        go.Scatter(
+            x=x_outline,
+            y=y_outline,
+            mode="lines",
+            line=dict(color="gold", width=3),
+            name="Outline",
+        )
+    )
+
+    # Update layout for a polished look with custom dimensions and no padding
+    fig.update_layout(
+        xaxis_title="Daily Profit ($)",
+        yaxis_title="Probability Density",
+        bargap=0,
+        template="plotly_white",
+        height=height,
+        width=width,
+        margin=dict(l=0, r=0, t=0, b=0),
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        showlegend=False,
+        yaxis=dict(showgrid=False),
+    )
+
+    return fig
+
+
 def create_return_hist_plot():
     # Sample data
     data = np.random.normal(loc=0, scale=1, size=1000) + 80
@@ -686,6 +746,8 @@ def plotly_filled_grad_line_chart(
     show_legend: bool = True,
     width: int = 800,
     height: int = 250,
+    xaxis_title="Time",
+    yaxis_title="$",
 ):
     # Create the area plot
     fig = go.Figure()
@@ -710,13 +772,14 @@ def plotly_filled_grad_line_chart(
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         xaxis=dict(showgrid=False),
-        yaxis=dict(showgrid=True),
+        yaxis=dict(showgrid=False),
         margin=dict(l=0, r=0, t=0, b=60),
         showlegend=show_legend,
+        width=width,
+        height=height,
+        xaxis_title=xaxis_title,
+        yaxis_title=yaxis_title,
     )
-
-    # Define figure size
-    fig.update_layout(width=width, height=height)
 
     return fig
 
@@ -729,6 +792,8 @@ def plotly_colored_line_chart(
     show_legend: bool = True,
     width: int = 800,
     height: int = 250,
+    xaxis_title="Time",
+    yaxis_title="$",
 ):
     # Create the area plot
     fig = go.Figure()
@@ -744,16 +809,17 @@ def plotly_colored_line_chart(
 
     # Update layout to remove background
     fig.update_layout(
+        xaxis_title=xaxis_title,
+        yaxis_title=yaxis_title,
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         xaxis=dict(showgrid=False),
-        yaxis=dict(showgrid=True),
+        yaxis=dict(showgrid=False),
         margin=dict(l=0, r=0, t=0, b=60),
         showlegend=show_legend,
+        width=width,
+        height=height,
     )
-
-    # Define figure size
-    fig.update_layout(width=width, height=height)
 
     return fig
 
@@ -1282,7 +1348,7 @@ def plotly_sankey_plot():
         paper_bgcolor="white",
         margin=dict(l=0, r=0, t=0, b=60),
         width=800,
-        height=250,
+        height=350,
     )
 
     return fig

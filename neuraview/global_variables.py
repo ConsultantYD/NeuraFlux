@@ -25,6 +25,7 @@ ALL_SIM_AGENTS_LIST_KEY = "all_sim_agents_list"
 PRELOADED_AGENTS_LIST_KEY = "preloaded_agents_list"
 PRELOADED_AGENTS_KEY = "preloaded_agents"
 PRELOADED_AGENTS_DF_KEY = "preloaded_agents_df"
+PRELOADED_SHADOW_ASSET_DF_KEY = "preloaded_shadow_asset_df"
 
 CONTROL_MODULE_KEY = "control_module"
 DATA_MODULE_KEY = "data_module"
