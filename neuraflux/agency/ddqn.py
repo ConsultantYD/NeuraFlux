@@ -2,6 +2,8 @@ import logging as log
 import os
 from copy import copy
 from dataclasses import dataclass
+from shutil import rmtree
+import traceback
 
 import dill
 import numpy as np
@@ -9,10 +11,10 @@ import tensorflow as tf
 from tensorflow.keras.models import Model
 
 from neuraflux.global_variables import (
-    LOG_SIM_T_KEY,
     LOG_ENTITY_KEY,
-    LOG_METHOD_KEY,
     LOG_MESSAGE_KEY,
+    LOG_METHOD_KEY,
+    LOG_SIM_T_KEY,
 )
 
 
@@ -35,8 +37,17 @@ class DDQNPREstimator:
         return self.forward_pass(*args, **kwargs)
 
     def forward_pass(
-        self, states: np.ndarray, target_model: bool = False
+        self,
+        states: np.ndarray,
+        target_model: bool = False,
+        lite_model: bool = False,
     ) -> np.ndarray:
+        if lite_model:
+            try:
+                return self.lite_predict(states)
+            except:
+                print("Inference with lite model failed. Switching to full model.")
+                print(traceback.format_exc())
         tf.compat.v1.get_default_graph().finalize()
         # Copy state and convert to tensor
         states = states.copy()
@@ -58,6 +69,34 @@ class DDQNPREstimator:
         del states, model
 
         return outputs
+
+    def lite_predict(self, x):
+        if x.shape[0] > 1:
+            raise ValueError("Lite model only supports batch size of 1.")
+
+        # Create lite model if it doesn't exist
+        if not hasattr(self, "lite_model"):
+            self.generate_tflite_model()
+
+        # Run the model with TensorFlow Lite
+        interpreter = tf.lite.Interpreter(model_content=self.lite_model)
+        interpreter.allocate_tensors()
+        input_details = interpreter.get_input_details()
+        output_details = interpreter.get_output_details()
+
+        interpreter.set_tensor(input_details[0]["index"], x)
+        interpreter.invoke()
+
+        result = [
+            interpreter.get_tensor(output_details[i]["index"])
+            for i in range(self.n_controllers)
+        ]
+
+        # NOTE: TfLite fused Lstm kernel is stateful, so we need to reset
+        # the states.
+        # Clean up internal states.
+        interpreter.reset_all_variables()
+        return result
 
     def compute_td_errors(
         self,
@@ -279,6 +318,12 @@ class DDQNPREstimator:
         model_file = os.path.join(directory, "model.keras")
         self.model.save(model_file)
 
+        # Save the lite model
+        if hasattr(self, "lite_model"):
+            lite_model_file = os.path.join(directory, "model.tflite")
+            with open(lite_model_file, "wb") as f:
+                f.write(self.lite_model)
+
         # Remove unserializable objects from the attributes
         model_temp = self.model
         target_model_temp = self.target_model
@@ -315,6 +360,13 @@ class DDQNPREstimator:
         self.__dict__.update(internal_variables)
         self.model = tf.keras.models.load_model(model_file)
         self.update_target_model()
+
+        # If lite_model available
+        lite_model_file = os.path.join(directory, "model.tflite")
+        if os.path.exists(lite_model_file):
+            with open(lite_model_file, "rb") as f:
+                self.lite_model = f.read()
+
         return self
 
     def copy(self):
@@ -323,6 +375,34 @@ class DDQNPREstimator:
         self_copy.model.set_weights(self.model.get_weights())
         self_copy.target_model = tf.keras.models.clone_model(self.target_model)
         return self_copy
+
+    def generate_tflite_model(self):
+        run_model = tf.function(lambda x: self.model(x))
+
+        # Fix the input size.
+        BATCH_SIZE = 1
+        STEPS = self.sequence_len
+        INPUT_SIZE = self.state_size
+        concrete_func = run_model.get_concrete_function(
+            tf.TensorSpec([BATCH_SIZE, STEPS, INPUT_SIZE], self.model.inputs[0].dtype)
+        )
+
+        # model directory.
+        MODEL_DIR = "temp_keras"
+        self.model.save(MODEL_DIR, save_format="tf", signatures=concrete_func)
+
+        converter = tf.lite.TFLiteConverter.from_saved_model(MODEL_DIR)
+
+        converter.target_spec.supported_ops = [
+            tf.lite.OpsSet.TFLITE_BUILTINS,  # enable TensorFlow Lite ops.
+            tf.lite.OpsSet.SELECT_TF_OPS,  # enable TensorFlow ops.
+        ]
+        converter.optimizations = [tf.lite.Optimize.DEFAULT]
+
+        self.lite_model = converter.convert()
+
+        # Clean up the model directory.
+        rmtree(MODEL_DIR)
 
     # def _build_model(self) -> Model:
     #     # initializer = tf.keras.initializers.Zeros()
@@ -359,9 +439,8 @@ class DDQNPREstimator:
         input_layer = tf.keras.layers.Input(shape=(self.sequence_len, self.state_size))
 
         # Shared layers
-        x = tf.keras.layers.GRU(
+        x = tf.keras.layers.LSTM(
             128,
-            activation="tanh",
             return_sequences=False,
             kernel_regularizer=tf.keras.regularizers.l2(0.01),
         )(input_layer)

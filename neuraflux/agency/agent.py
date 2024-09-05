@@ -129,6 +129,7 @@ class Agent:
             scaled_rl_df,
             self.data_module.get_columns_with_tag(self.config, SignalTags.RL_STATE),
             self.rl_config,
+            use_lite_inference=True,
         )
 
         # Delete unused variables and force garbage collection
@@ -495,7 +496,9 @@ class Agent:
             df = tf_all_cyclic(df)
 
             rl_seq_len = self.rl_config.history_length
-            delta_seconds_required = self.time_info.dt.total_seconds() * rl_seq_len
+            delta_seconds_required = self.time_info.dt.total_seconds() * (
+                rl_seq_len - 1
+            )
             start_time = current_idx - dt.timedelta(seconds=delta_seconds_required)
             rl_df = df.loc[start_time:current_idx]
 

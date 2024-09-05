@@ -41,6 +41,10 @@ class ControlModule(Module):
     A class for managing reinforcement learning and control-related operations.
     """
 
+    def __init__(self, base_dir: str):
+        super().__init__(base_dir)
+        self.cache_registry: dict[str : dict[str:DDQNPREstimator]] = {}
+
     def rl_training(
         self,
         uid: str,
@@ -123,6 +127,9 @@ class ControlModule(Module):
                 use_index=False,
             )
 
+        # Make lite model available
+        q_estimator.generate_tflite_model()
+
         # Convert time index to model name str
         self.push_model_to_registry(uid, model_name, q_estimator)
         self.save_replay_buffer(uid, buffer, simulation=simulation)
@@ -190,6 +197,7 @@ class ControlModule(Module):
         state_columns: list[str],
         rl_config: RLConfig,
         model_name: None | str = None,
+        use_lite_inference: bool = False,
     ) -> None:
         # Work with a copy of the input data
         scaled_df = scaled_data.copy()
@@ -203,7 +211,7 @@ class ControlModule(Module):
         available_models = self.get_available_models_in_registry(uid)
         model_name = available_models[-1] if model_name is None else model_name
         q_estimator = self.get_model_from_registry(uid, model_name)
-        q_factors = q_estimator.forward_pass(states)
+        q_factors = q_estimator.forward_pass(states, lite_model=use_lite_inference)
 
         # Delete unused variables and force garbage collection
         del scaled_df, states, q_estimator
@@ -359,16 +367,24 @@ class ControlModule(Module):
     def push_model_to_registry(
         self, uid: str, model_name: str, q_estimator: DDQNPREstimator
     ) -> None:
+        # Store in cache
+        if uid not in self.cache_registry:
+            self.cache_registry[uid] = {}
+        self.cache_registry[uid][model_name] = q_estimator
+
+        # Save locally
         model_dir = os.path.join(self.base_dir, uid, "ddqn_models")
         if not os.path.isdir(model_dir):
             os.makedirs(model_dir)
         model_file = os.path.join(model_dir, model_name)
         q_estimator.to_file(model_file)
 
-        # Delete unused variables and force garbage collection
-        del q_estimator
-
     def get_model_from_registry(self, uid: str, model_name: str) -> DDQNPREstimator:
+        # Try to use cache if available
+        if uid in self.cache_registry and model_name in self.cache_registry[uid]:
+            return self.cache_registry[uid][model_name]
+
+        # Else load locally
         model_file = os.path.join(self.base_dir, uid, "ddqn_models", model_name)
         model = DDQNPREstimator.from_file(model_file)
         return model
@@ -381,3 +397,10 @@ class ControlModule(Module):
         )
         # training_df = pd.read_sql(f"SELECT * FROM {TABLE_DQN_TRAINING}", db_connection)
         return training_df
+
+    def to_file(self, *arg, **kwargs) -> None:
+        # Do not save unpickleable elements
+        temp_var = self.cache_registry
+        del self.cache_registry
+        super().to_file(*arg, **kwargs)
+        self.cache_registry = temp_var
