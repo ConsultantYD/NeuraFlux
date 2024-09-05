@@ -45,7 +45,7 @@ class DDQNPREstimator:
         if lite_model:
             try:
                 return self.lite_predict(states)
-            except:
+            except Exception:
                 print("Inference with lite model failed. Switching to full model.")
                 print(traceback.format_exc())
         tf.compat.v1.get_default_graph().finalize()
