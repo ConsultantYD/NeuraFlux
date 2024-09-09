@@ -119,8 +119,14 @@ class Agent:
         df = self.get_data(start_time=start_time, time_features=True)
         return df
 
-    def get_q_factors(self, rl_df: None | pd.DataFrame = None) -> np.ndarray:
+    def get_q_factors(self, rl_df: None | pd.DataFrame = None, use_lite_inference:bool=False) -> np.ndarray:
         rl_df = self.get_data_for_rl_at_time() if rl_df is None else rl_df
+        
+        # Keep only the necessary history length to have a batch of 1
+        if use_lite_inference:
+            rl_df = rl_df.iloc[-self.rl_config.history_length:]
+        
+        # Scale the dataframe
         scaled_rl_df = self.data_module.scale_dataframe_from_scaling_dict(
             rl_df, self.uid
         )
@@ -129,7 +135,7 @@ class Agent:
             scaled_rl_df,
             self.data_module.get_columns_with_tag(self.config, SignalTags.RL_STATE),
             self.rl_config,
-            use_lite_inference=True,
+            use_lite_inference=use_lite_inference,
         )
 
         # Delete unused variables and force garbage collection
@@ -233,9 +239,10 @@ class Agent:
         epsilon: float | None = None,
         min_probability: float = 0.05,
         boltzmann: bool = False,
+        use_lite_inference: bool = True,
     ) -> dict[str, int]:
         # Initialize necessary variables and quantities
-        q_factors = self.get_q_factors(rl_df)
+        q_factors = self.get_q_factors(rl_df, use_lite_inference=use_lite_inference)
         possible_actions = list(self.cpm.keys())
         control_data = {}
 
@@ -496,15 +503,11 @@ class Agent:
             df = tf_all_cyclic(df)
 
             rl_seq_len = self.rl_config.history_length
-            delta_seconds_required = self.time_info.dt.total_seconds() * (
-                rl_seq_len - 1
-            )
-            start_time = current_idx - dt.timedelta(seconds=delta_seconds_required)
-            rl_df = df.loc[start_time:current_idx]
+            rl_df = df.loc[:current_idx].iloc[-rl_seq_len:]
 
             #########
             # control_values = list(policy(**policy_kwargs).values())
-            control_values = self.apply_policy_q_max(rl_df, epsilon=0.5, boltzmann=True)
+            control_values = self.apply_policy_q_max(rl_df, epsilon=0.5, boltzmann=True, use_lite_inference=True)
 
             df.loc[current_idx, control_cols] = control_values
             df[control_cols] = df[control_cols].astype("Int64")

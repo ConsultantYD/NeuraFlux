@@ -13,7 +13,7 @@ from neuraflux.agency.tariffs import AvailableTariffsEnum
 from neuraflux.agency.products import AvailableProductsEnum
 from sidebar_utils import generate_sidebar
 from agent_utils import show_agent_ui
-
+from global_variables import SELECTED_SIM_CONFIG_KEY
 
 # def show_agent_ui(agent_uid: str, agent_config: AgentConfig, locked=False):
 #     col41, col42 = st.columns(2)
@@ -112,7 +112,7 @@ from agent_utils import show_agent_ui
 #             current_product_str = st.session_state["prod_placeholder"]
 #         else:
 #             current_product_str = agent_config.product
-        
+
 #         PRODUCTS = {
 #             "Arbitrage": "Arbitrage",
 #             "Demand Response": 'Demand Response',
@@ -156,14 +156,14 @@ from agent_utils import show_agent_ui
 #             if st.form_submit_button("Add agent to simulation", type="primary"):
 #                 st.session_state["new_simulation_config"].agents[uid] = agent_config
 #                 st.rerun()
-    # for agent in agents:
-    #    with st.expander(f"**{agent.name}**"):
-    #        col31, col32 = st.columns((1, 1))
-    #        col31.write(f"Latitude: {agent.lat}")
-    #        col32.write(f"Longitude: {agent.lon}")
-    #        col33, col34 = st.columns((1, 1))
-    #        col33.button("Edit")
-    #        col34.button("Delete")
+# for agent in agents:
+#    with st.expander(f"**{agent.name}**"):
+#        col31, col32 = st.columns((1, 1))
+#        col31.write(f"Latitude: {agent.lat}")
+#        col32.write(f"Longitude: {agent.lon}")
+#        col33, col34 = st.columns((1, 1))
+#        col33.button("Edit")
+#        col34.button("Delete")
 
 
 def show_simulation_config_ui(sim_config: SimulationConfig, locked: bool = False):
@@ -283,6 +283,13 @@ st.title("⚙️ Simulation Config")
 generate_sidebar()
 
 st.write("#####")
+
+# Case 1: New Simulation
+
+# Case 2: Simulation Selected
+if SELECTED_SIM_CONFIG_KEY in st.session_state:
+    show_simulation_config_ui(st.session_state[SELECTED_SIM_CONFIG_KEY], locked=True)
+
 col00, _ = st.columns(2)
 sim_name = col00.text_input("Simulation Name", value="sim_1")
 
