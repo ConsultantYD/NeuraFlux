@@ -6,6 +6,7 @@ from data_utils import (
     get_agent_in_active_simulation,
     get_simulations_from_directory,
     load_data_in_session,
+    clear_simulation_data_from_session_state,
 )
 from global_variables import (
     ALL_SIM_AGENTS_LIST_KEY,
@@ -42,6 +43,7 @@ def generate_sidebar():
     if new_sim_clicked:
         st.session_state["new_sim_clicked"] = True
         st.session_state["load_sim_clicked"] = False
+        clear_simulation_data_from_session_state()
         st.switch_page("9_simulation_config.py")
     if load_sim_clicked:
         st.session_state["new_sim_clicked"] = False
@@ -77,12 +79,24 @@ def generate_sidebar():
             #     max_value=dt.date(2023, 5, 31),
             #     value=(dt.date(2023, 1, 1), dt.date(2023, 1, 7)),
             # )
-            start_date = col01.date_input("Start Date", value=dt.date(2023, 1, 1))
-            end_date = col02.date_input("End Date", value=dt.date(2023, 1, 7))
+
+            if "start_date" not in st.session_state:
+                st.session_state["start_date"] = dt.date(2023, 1, 1)
+            if "end_date" not in st.session_state:
+                st.session_state["end_date"] = dt.date(2023, 1, 7)
+
+            st.session_state["start_date"] = col01.date_input(
+                "Start Date", value=st.session_state["start_date"]
+            )
+            st.session_state["end_date"] = col02.date_input(
+                "End Date", value=st.session_state["end_date"]
+            )
             # Convert date to datetime
-            start_datetime = dt.datetime.combine(start_date, dt.time(0, 0, 0))
+            start_datetime = dt.datetime.combine(
+                st.session_state["start_date"], dt.time(0, 0, 0)
+            )
             end_datetime = dt.datetime.combine(
-                end_date - dt.timedelta(days=1), dt.time(23, 59, 59)
+                st.session_state["end_date"] - dt.timedelta(days=1), dt.time(23, 59, 59)
             )
 
             # PRE-LOAD AGENTS DATA

@@ -167,8 +167,8 @@
                     }
                 }
             },
-            "product": "DYNAMIC_PRICING",
-            "tariff": "NO_TARIFF"
+            "product": "Dynamic Pricing (CAISO)",
+            "tariff": "No Tariff"
         }
     },
     "assets": {
@@ -202,7 +202,7 @@
             ]
         }
     },
-    "directory": "simulations/NewSim3",
+    "directory": "simulations/NewSim4",
     "geography": {
         "city": "Chicago"
     },

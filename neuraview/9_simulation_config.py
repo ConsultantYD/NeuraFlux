@@ -13,7 +13,7 @@ from neuraflux.agency.tariffs import AvailableTariffsEnum
 from neuraflux.agency.products import AvailableProductsEnum
 from sidebar_utils import generate_sidebar
 from agent_utils import show_agent_ui
-
+from global_variables import SELECTED_SIM_CONFIG_KEY, PRELOADED_AGENTS_DF_KEY
 
 # def show_agent_ui(agent_uid: str, agent_config: AgentConfig, locked=False):
 #     col41, col42 = st.columns(2)
@@ -112,7 +112,7 @@ from agent_utils import show_agent_ui
 #             current_product_str = st.session_state["prod_placeholder"]
 #         else:
 #             current_product_str = agent_config.product
-        
+
 #         PRODUCTS = {
 #             "Arbitrage": "Arbitrage",
 #             "Demand Response": 'Demand Response',
@@ -156,14 +156,14 @@ from agent_utils import show_agent_ui
 #             if st.form_submit_button("Add agent to simulation", type="primary"):
 #                 st.session_state["new_simulation_config"].agents[uid] = agent_config
 #                 st.rerun()
-    # for agent in agents:
-    #    with st.expander(f"**{agent.name}**"):
-    #        col31, col32 = st.columns((1, 1))
-    #        col31.write(f"Latitude: {agent.lat}")
-    #        col32.write(f"Longitude: {agent.lon}")
-    #        col33, col34 = st.columns((1, 1))
-    #        col33.button("Edit")
-    #        col34.button("Delete")
+# for agent in agents:
+#    with st.expander(f"**{agent.name}**"):
+#        col31, col32 = st.columns((1, 1))
+#        col31.write(f"Latitude: {agent.lat}")
+#        col32.write(f"Longitude: {agent.lon}")
+#        col33, col34 = st.columns((1, 1))
+#        col33.button("Edit")
+#        col34.button("Delete")
 
 
 def show_simulation_config_ui(sim_config: SimulationConfig, locked: bool = False):
@@ -194,7 +194,7 @@ def show_simulation_config_ui(sim_config: SimulationConfig, locked: bool = False
             disabled=locked,
         )
 
-        if st.form_submit_button("Save Changes"):
+        if st.form_submit_button("Save Changes", disabled=locked):
             # Update the simulation config
             sim_config.time.start_time = sim_start.strftime(DT_STR_FORMAT)
             sim_config.time.end_time = sim_end.strftime(DT_STR_FORMAT)
@@ -266,16 +266,34 @@ def show_simulation_config_ui(sim_config: SimulationConfig, locked: bool = False
     st.write("##### Detailed View")
 
     # Loop over existing simulation agents to show details
-    for agent_name, agent_config in st.session_state[
-        "new_simulation_config"
-    ].agents.items():
+    for agent_name, agent_config in sim_config.agents.items():
         with st.expander(f"♟️ **{agent_name}**"):
-            show_agent_ui(agent_name, agent_config, locked=True)
+            if not locked or agent_name in st.session_state[PRELOADED_AGENTS_DF_KEY]:
+                show_agent_ui(agent_name, agent_config, locked=locked)
+                if not locked:
+                    if st.button(
+                        "Remove Agent",
+                        key=agent_name + "delete",
+                        type="primary",
+                        use_container_width=True,
+                    ):
+                        del st.session_state["new_simulation_config"].agents[agent_name]
+                        st.rerun()
+            else:
+                st.warning("Not available - Use sidebar to load agent data.")
 
     # Add agent expander
-    config_template = list(st.session_state["new_simulation_config"].agents.values())[0]
-    with st.expander("**❇️  Add Agent**", icon="➕"):
-        show_agent_ui("New Agent", deepcopy(config_template), locked=False)
+    existing_agent_configs = list(
+        st.session_state["new_simulation_config"].agents.values()
+    )
+    if "agent_config_template" not in st.session_state:
+        st.session_state["agent_config_template"] = existing_agent_configs[0]
+
+    config_template = deepcopy(st.session_state["agent_config_template"])
+
+    if not locked:
+        with st.expander("**Add Agent**", icon="❇️"):
+            show_agent_ui("New Agent", deepcopy(config_template), locked=False)
 
 
 # Page title and sidebar initialization
@@ -283,13 +301,21 @@ st.title("⚙️ Simulation Config")
 generate_sidebar()
 
 st.write("#####")
-col00, _ = st.columns(2)
-sim_name = col00.text_input("Simulation Name", value="sim_1")
 
-# Initialize a new simulation config from templates if necessary
-if "new_simulation_config" not in st.session_state:
-    loaded_json_config = json.load(open("config.json"))
-    new_simulation_config = SimulationConfig.model_validate(loaded_json_config)
-    st.session_state["new_simulation_config"] = new_simulation_config
+# Case 1: New Simulation
 
-show_simulation_config_ui(st.session_state["new_simulation_config"])
+# Case 2: Simulation Selected
+if SELECTED_SIM_CONFIG_KEY in st.session_state:
+    show_simulation_config_ui(st.session_state[SELECTED_SIM_CONFIG_KEY], locked=True)
+else:
+    col00, _ = st.columns(2)
+
+    sim_name = col00.text_input("Simulation Name", value="sim_1")
+
+    # Initialize a new simulation config from templates if necessary
+    if "new_simulation_config" not in st.session_state:
+        loaded_json_config = json.load(open("config.json"))
+        new_simulation_config = SimulationConfig.model_validate(loaded_json_config)
+        st.session_state["new_simulation_config"] = new_simulation_config
+
+    show_simulation_config_ui(st.session_state["new_simulation_config"])

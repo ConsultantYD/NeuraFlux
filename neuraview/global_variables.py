@@ -89,6 +89,16 @@ ASSET_INTERNAL_COMPONENTS_DICT: dict[AvailableAssetsEnum, dict] = {
     AvailableAssetsEnum.WIND_TURBINE: {},
 }
 
+SANITIZED_PRODUCTS_MAPPING: dict[str, str] = {
+    "Building HVAC Optimization": "Energy Efficiency",
+    "Demand Response": "Demand Response",
+    "Dynamic Pricing (CAISO)": "Arbitrage",
+    "Tariff Optimization": "Tariff Optimization",
+    "Tariff, GHG, and DR Optimization": "Decarbonization",
+    "DYNAMIC_PRICING": "Arbitrage",
+}
+
+
 PRODUCTS_DESCRIPTION_DICT: dict[str, str] = {
     "Arbitrage": "Utilize fluctuating market prices by strategically buying energy when prices are low and selling or consuming it when prices are high to maximize financial returns.",
     "Demand Response": "Adjust energy consumption or curtail load at specific times based on utility needs to balance grid demand and supply, often in exchange for financial incentives.",

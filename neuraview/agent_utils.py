@@ -11,6 +11,7 @@ from global_variables import (
     ASSET_TO_ICON_PATH,
     ASSET_DESCRIPTION_DICT,
     ASSET_INTERNAL_COMPONENTS_DICT,
+    SANITIZED_PRODUCTS_MAPPING,
     PRODUCTS_DESCRIPTION_DICT,
     PRELOADED_AGENTS_KEY,
     PRELOADED_AGENTS_DF_KEY,
@@ -95,19 +96,20 @@ def asset_section_ui(agent_uid: str, agent_config: AgentConfig, locked: bool = F
 def tariff_section_ui(agent_uid: str, agent_config: AgentConfig, locked: bool = False):
     col11, _, col12, col13 = st.columns((30, 4, 18, 18))
     current_tariff_str = agent_config.tariff
+    current_tariff_str = (
+        "No Tariff" if current_tariff_str == "NO_TARIFF" else current_tariff_str
+    )
     available_tariff_list = AvailableTariffsEnum.list_tariffs()
-
     agent_config.tariff = col11.selectbox(
         "Select Tariff",
-        available_tariff_list + ["General, ToU, Demand <50 kW"],
+        available_tariff_list,
         key="tariff" + agent_uid,
         index=available_tariff_list.index(current_tariff_str),
         disabled=locked,
         label_visibility="collapsed",
     )
 
-    agent_config.tariff = "Ontario TOU"
-
+    # agent_config.tariff = "Ontario TOU"
     tariff = AvailableTariffsEnum.from_string(agent_config.tariff)
 
     with col11:
@@ -232,45 +234,31 @@ def tariff_section_ui(agent_uid: str, agent_config: AgentConfig, locked: bool = 
 def product_section_ui(agent_uid: str, agent_config: AgentConfig, locked: bool = False):
     col11, _, col12, _ = st.columns((9, 2, 8, 2))
     available_products_list = AvailableProductsEnum.list_products()
-    if "prod_placeholder" in st.session_state:
-        current_product_str = st.session_state["prod_placeholder"]
-    else:
-        current_product_str = agent_config.product
 
-    PRODUCTS = {
-        "Arbitrage": "Arbitrage",
-        "Demand Response": "Demand Response",
-        "Dynamic Pricing (CAISO)": "Arbitrage",
-        "Tariff, GHG, and DR Optimization": "Decarbonization",
-        "Energy Efficiency": "Energy Efficiency",
-        "Grid Stability": "Grid Stability",
-        "Load Flexibility": "Load Flexibility",
-        "Power Peaks": "Power Peaks",
-        "Tariff Optimization": "Tariff Optimization",
-    }
+    PRODUCTS = available_products_list
+
     # REVERSE_PRODUCT = {v: k for k, v in PRODUCTS.items()}
-    st.session_state["prod_placeholder"] = col11.selectbox(
+    agent_config.product = col11.selectbox(
         "Select Product",
-        list(PRODUCTS.keys()) + ["HOEP Market Arbitrage"],
-        list(PRODUCTS.keys()).index(current_product_str),
+        PRODUCTS,
+        PRODUCTS.index(agent_config.product) if agent_config.product in PRODUCTS else 2,
         key="product" + agent_uid,
         disabled=locked,
         label_visibility="collapsed",
     )
-    st.session_state["prod_placeholder"] = "Arbitrage"
-    sanitized_product = PRODUCTS[st.session_state["prod_placeholder"]]
-    if sanitized_product in available_products_list:
-        agent_config.product = sanitized_product
 
     with col11.popover(
         "See all available products",
     ):
         st.image("neuraview/media/products/all_products.png")
 
+    sanitized_product = SANITIZED_PRODUCTS_MAPPING[agent_config.product]
+
     with col11:
         col11.write("**Description:** " + PRODUCTS_DESCRIPTION_DICT[sanitized_product])
     col12.image(
-        f"neuraview/media/products/{sanitized_product}.png", use_column_width=True
+        f"neuraview/media/products/{sanitized_product}.png",
+        use_column_width=True,
     )
 
 
@@ -329,7 +317,7 @@ def show_data_ui(agent_uid: str, agent_config: AgentConfig, locked: bool = False
             df = st.session_state[PRELOADED_AGENTS_DF_KEY][agent_uid]
             st.dataframe(df.describe().T, use_container_width=True)
         else:
-            st.warning("Please load the agent data to access this feature.")
+            st.info("Not available in configuration mode.")
 
     # Signal Visualization
     with tab3:
@@ -379,6 +367,11 @@ def show_data_ui(agent_uid: str, agent_config: AgentConfig, locked: bool = False
 
                 hist_fig = plotly_hist_plot(sub_df, cols, show_legend=False)
                 col22.plotly_chart(hist_fig)
+        else:
+            st.info("Not available in configuration mode.")
+
+    with tab4:
+        st.info("Under development.")
 
 
 def show_agent_ui(agent_uid: str, agent_config: AgentConfig, locked: bool = False):
@@ -405,8 +398,11 @@ def show_agent_ui(agent_uid: str, agent_config: AgentConfig, locked: bool = Fals
     st.divider()
 
     st.write("### 🕹️ Control ")
-    st.write("Under Development")
-
+    if PRELOADED_AGENTS_KEY in st.session_state:
+        rl_config_dict = agent_config.control.reinforcement_learning.model_dump()
+        st.dataframe({k: [v] for k, v in rl_config_dict.items()})
+    else:
+        st.info("Under development.")
     # with st.form("agent_form_" + agent_uid, border=False):
     #     uid = col41.text_input(
     #         "Name (UID)", value=agent_uid, disabled=locked, key="uid" + agent_uid
