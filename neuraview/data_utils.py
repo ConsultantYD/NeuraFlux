@@ -11,6 +11,7 @@ from global_variables import (
     SELECTED_SIM_DIR_KEY,
     SELECTED_SIM_SUMMARY_KEY,
     SIM_SUMMARY_FILENAME,
+    PRELOADED_AGENTS_KEY,
 )
 from neuraflux.agency.agent import Agent
 from neuraflux.agency.control_module import ControlModule
@@ -33,6 +34,12 @@ def get_simulations_from_directory(directory: str = "simulations") -> list[str]:
 def load_simulation_config(simulation_dir: str) -> SimulationConfig:
     simulation_config_filepath = os.path.join(simulation_dir, "config.json")
     with open(simulation_config_filepath) as f:
+        simulation_config_dict = json.load(f)
+    return SimulationConfig.model_validate(simulation_config_dict)
+
+
+def load_config_file(config_filepath: str) -> SimulationConfig:
+    with open(config_filepath) as f:
         simulation_config_dict = json.load(f)
     return SimulationConfig.model_validate(simulation_config_dict)
 
@@ -113,3 +120,16 @@ def get_agent_in_active_simulation(agent_uid: str) -> Agent:
     # Initialize agent
     agent = Agent(agent_uid, agent_config, data_module, control_module, time_info, None)
     return agent
+
+
+def clear_simulation_data_from_session_state():
+    for key in [
+        SELECTED_SIM_DIR_KEY,
+        SELECTED_SIM_CONFIG_KEY,
+        SELECTED_SIM_SUMMARY_KEY,
+        ALL_SIM_AGENTS_LIST_KEY,
+        CONTROL_MODULE_KEY,
+        DATA_MODULE_KEY,
+    ]:
+        if key in st.session_state:
+            del st.session_state[key]

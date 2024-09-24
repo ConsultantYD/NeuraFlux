@@ -167,8 +167,8 @@
                     }
                 }
             },
-            "product": "DYNAMIC_PRICING",
-            "tariff": "NO_TARIFF"
+            "product": "Dynamic Pricing (CAISO)",
+            "tariff": "No Tariff"
         }
     },
     "assets": {
