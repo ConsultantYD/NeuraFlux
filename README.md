@@ -28,27 +28,50 @@
 
 To get started with NeuraFlux, follow these simple steps:
 
-1. **Clone the Repository:**
+- **Step 1: Clone the Repository**
 
-   First, clone the NeuraFlux repository to the desired machine:
+  First, clone the NeuraFlux repository to the desired machine:
 
-   ```bash
-   git clone https://github.com/yourusername/neuraflux.git
-   ```
+    ```bash
+    git clone https://github.com/yourusername/neuraflux.git
+    ```
 
-2. **Install Dependencies with Poetry**
-    The package uses **Poetry** to manage dependencies and virtual environments. If you haven't installed Poetry yet, installation steps can be found [here](https://python-poetry.org/docs/).
+- **Step 2A: Local Install with Poetry**
 
-    Once Poetry is installed, move to the project directory and run
+  The package uses **Poetry** to manage dependencies and virtual environments. If you haven't installed Poetry yet, installation steps can be found [here](https://python-poetry.org/docs/).
+
+  Once Poetry is installed, move to the project directory and run the command below to install all project dependencies:
 
     ```bash
     poetry install
     ```
 
-    to install all project dependencies.
+  To launch a new simulation using the local ```config.json``` file, you can use:
 
-3. **Docker Deployment**
-    The package features and components will soon be dockerized, allowing them to run seamlessly in a containerized environment.
+    ```bash
+    python main.py
+    ```  
+
+- **Step 2B: Docker Deployment**
+
+    To run NeuraFlux inside a Docker container, follow these steps:
+
+    - **Prepare your environment**: Ensure all simulation files you need are placed in the ```simulation``` directory before building the image. This inclusion is crucial for Docker to copy all necessary files into the container.
+    - **Build the Docker Image**: Build the Docker image from the Dockerfile located at the root of the project directory:
+
+      ```bash
+      docker build -t neuraview-app .
+      ```
+
+    - **Run the Docker container**: Once the image is built, you can run NeuraFlux's dashboard using:
+
+      ```bash
+      docker run -p 8501:8501 neuraview-app
+      ```
+
+    This command maps port 8501 of the container to port 8501 on your host, allowing you to access the Streamlit application via http://localhost:8501.
+
+    
 
 ## Overview
 
@@ -90,24 +113,22 @@ Neuraflux’s capabilities encompass market mechanisms and economic factors, suc
 
 ## Getting Started
 
-To be completed.
+To launch a new simulation, edit the local ```config.json``` file then run:
+
+  ```bash
+  python main.py
+  ```
+
+To launch **NeuraView**, NeuraFlux's dashboard, you can use the command:
+
+  ```bash
+  streamlit run neuraview/main.py
+  ```
 
 ## Case Studies
 
 To be completed.
 
-  ### Commercial Building HVAC Systems
-
-  To be completed.
-### Energy Storage Arbitraging
-
-To be completed.
-### Industrial Process Optimization
-
-To be completed.
-### Electric Vehicle Grid Contribution
-
-To be completed.
 ### NeuraFlux v1.X Case Studies
 
 The code and visualizations presented in the article *NeuraFlux: A Scalable and Adaptive Framework for Autonomous Data-Driven Multi-Agent Power Optimization* are available at the [following link](https://github.com/YsaelDesage/NeuraFlux), under commit version *7a28c5a*.
