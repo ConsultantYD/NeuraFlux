@@ -167,50 +167,122 @@ class HOEPMarketProduct(Product):
     def __init__(
         self,
         price_file_path: str = "datasets/hoep_interpolated_2023.csv",
-        period: int = 3,
+        period: int = 24,
     ):
         # Reading the dynamic prices from the provided CSV file
         self.dynamic_prices_df = pd.read_csv(
             price_file_path, index_col=0, parse_dates=True
         )
+        # Set the index to be utc
+        self.dynamic_prices_df.index = self.dynamic_prices_df.index.tz_localize("UTC")
 
-        # TODO: Update HOEP dataset to begin at 00:00:00, and remove below
-        self.dynamic_prices_df.index = self.dynamic_prices_df.index - dt.timedelta(
-            hours=1
-        )
+        # Run default class init
+        super().__init__(period)
 
-        self.period = period
-
-    def get_price(self, time: dt.datetime) -> float:
+    def get_market_price(self, time: dt.datetime) -> float:
         # Find the closest time index in the DataFrame to the given time
         closest_time = self.dynamic_prices_df.index.get_loc(time)
         return self.dynamic_prices_df.iloc[closest_time]["HOEP"]
 
-    def calculate_rewards(self, df: DataFrame) -> np.ndarray:
+    def calculate_rewards(self, df: pd.DataFrame) -> np.ndarray:
         # Assuming the DataFrame has a datetime index and an 'energy' column
         df = df.copy()
         prices = [
-            self.get_price(time=row.name) * -row[ENERGY_KEY]
+            self.get_market_price(time=row.name) * -row[ENERGY_KEY]
             for index, row in df.iterrows()
         ]
-        df[REWARD_KEY + "_ENERGY"] = prices
+        df[REWARD_KEY] = prices
+        return df[[REWARD_KEY]].values
 
-        # Set the value to be negative penalty if internal energy is 0 and action is 0
-        if "control_1" in df.columns:
-            filter = (df["internal_energy"] == 0) & (df["control_1"] == 0)
-            df.loc[filter, REWARD_KEY + "_ENERGY"] = -2500
+    def add_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        # Copy the DataFrame to avoid modifying the original one
+        df = df.copy()
 
-        return df[REWARD_KEY + "_ENERGY"].values
+        # Iterate over the DataFrame rows
+        for index, _ in df.iterrows():
+            # Calculate the timestamps for the next 12 intervals (5 minutes each)
+            previous_times = [
+                index - dt.timedelta(minutes=5 * i) for i in range(1, 6 + 1)
+            ]
 
-    def get_reward_names(self) -> list[str]:
-        reward_names = [REWARD_KEY + "_ENERGY"]
-        return reward_names
+            # NOTE: Normally not available in real-world scenarios
+            # Retrieve price for current timestamp
+            # if index in self.dynamic_prices_df.index:
+            #    df.loc[index, "market_price_t"] = self.get_market_price(index)
+            # else:
+            #    raise ValueError(
+            #        f"Missing HOEP price data in Product for timestamp {index}."
+            #    )
+            # Retrieve prices for these timestamps
+            for i, time in enumerate(previous_times):
+                # Check if the time exists in dynamic_prices_df, if not, handle appropriately
+                if time in self.dynamic_prices_df.index:
+                    price = self.get_market_price(time)
+                else:
+                    raise ValueError(
+                        f"Missing CAISO price data in Product for timestamp {time}."
+                    )
+
+                # Add the price to the DataFrame
+                df.loc[index, f"market_price_t-{i+1}"] = price
+
+        return df
 
     def calculate_total_price(self, df: pd.DataFrame) -> np.ndarray:
-        raise NotImplementedError
+        return -1 * self.calculate_rewards(df)
 
     def client_facing_name(self) -> str:
         return "Arbitrage (HOEP Market)"
+
+
+# class HOEPMarketProduct(Product):
+#     def __init__(
+#         self,
+#         price_file_path: str = "datasets/hoep_interpolated_2023.csv",
+#         period: int = 3,
+#     ):
+#         # Reading the dynamic prices from the provided CSV file
+#         self.dynamic_prices_df = pd.read_csv(
+#             price_file_path, index_col=0, parse_dates=True
+#         )
+
+#         # TODO: Update HOEP dataset to begin at 00:00:00, and remove below
+#         self.dynamic_prices_df.index = self.dynamic_prices_df.index - dt.timedelta(
+#             hours=1
+#         )
+
+#         self.period = period
+
+#     def get_price(self, time: dt.datetime) -> float:
+#         # Find the closest time index in the DataFrame to the given time
+#         closest_time = self.dynamic_prices_df.index.get_loc(time)
+#         return self.dynamic_prices_df.iloc[closest_time]["HOEP"]
+
+#     def calculate_rewards(self, df: DataFrame) -> np.ndarray:
+#         # Assuming the DataFrame has a datetime index and an 'energy' column
+#         df = df.copy()
+#         prices = [
+#             self.get_price(time=row.name) * -row[ENERGY_KEY]
+#             for index, row in df.iterrows()
+#         ]
+#         df[REWARD_KEY + "_ENERGY"] = prices
+
+#         # Set the value to be negative penalty if internal energy is 0 and action is 0
+#         if "control_1" in df.columns:
+#             filter = (df["internal_energy"] == 0) & (df["control_1"] == 0)
+#             df.loc[filter, REWARD_KEY + "_ENERGY"] = -2500
+
+#         return df[REWARD_KEY + "_ENERGY"].values
+
+#     def get_reward_names(self) -> list[str]:
+#         reward_names = [REWARD_KEY + "_ENERGY"]
+#         return reward_names
+
+#     def calculate_total_price(self, df: pd.DataFrame) -> np.ndarray:
+#         raise NotImplementedError
+
+#     def client_facing_name(self) -> str:
+#         return "Arbitrage (HOEP Market)"
 
 
 class HVACBuildingProduct(Product):
@@ -395,7 +467,7 @@ class AvailableProductsEnum(Enum):
     DYNAMIC_PRICING = CAISODynamicPricingProduct
     EV_DR = EvDrTouGhgProduct
     HVAC_BUILDING = HVACBuildingProduct
-    # HOEP_MARKET = HOEPMarketProduct
+    HOEP_MARKET = HOEPMarketProduct
     SIMPLE_TARIFF_OPT = SimpleTariffOptimizationProduct
 
     @classmethod
