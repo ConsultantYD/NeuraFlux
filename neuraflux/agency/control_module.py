@@ -41,6 +41,10 @@ class ControlModule(Module):
     A class for managing reinforcement learning and control-related operations.
     """
 
+    def __init__(self, base_dir: str):
+        super().__init__(base_dir)
+        self.cache_registry: dict[str : dict[str:DDQNPREstimator]] = {}
+
     def rl_training(
         self,
         uid: str,
@@ -49,6 +53,7 @@ class ControlModule(Module):
         product_str: str,
         state_columns: list[str],
         action_size: int,
+        simulation: bool = False,
     ) -> None:
         # Log the start of the training process
         log.debug(
@@ -61,7 +66,7 @@ class ControlModule(Module):
         )
 
         # Retrieve replay buffers
-        real_buffer = self.get_replay_buffer(uid, rl_config=rl_config, simulation=False)
+        buffer = self.get_replay_buffer(uid, rl_config=rl_config, simulation=simulation)
 
         # Obtain production Q estimator, using latest model
         available_models = self.get_available_models_in_registry(uid)
@@ -77,8 +82,8 @@ class ControlModule(Module):
 
         model_name = index.strftime("%y_%m_%d__%H_%M")
         for target_iterator in range(rl_config.n_target_updates):
-            q_estimator, real_buffer, err_list, times_dict = simple_training_loop(
-                replay_buffer_real=real_buffer,
+            q_estimator, buffer, err_list, times_dict = simple_training_loop(
+                replay_buffer_real=buffer,
                 q_estimator=q_estimator,
                 sampling_size=rl_config.experience_sampling_size,
                 n_sampling_iters=rl_config.n_sampling_iters,
@@ -109,24 +114,36 @@ class ControlModule(Module):
             training_df["n_fit_epochs"] = rl_config.n_fit_epochs
             training_df["tf_batch_size"] = rl_config.tf_batch_size
             training_df["uid"] = uid
+            training_df["is_simulation"] = simulation
             db_connection = self.create_connection_to_agent_db(uid)
+            table = (
+                "simulated_" + TABLE_DQN_TRAINING if simulation else TABLE_DQN_TRAINING
+            )
             add_dataframe_to_table(
                 training_df,
                 db_connection,
-                TABLE_DQN_TRAINING,
+                table,
                 index_col=None,
                 use_index=False,
             )
 
+        # Make lite model available
+        q_estimator.generate_tflite_model()
+
         # Convert time index to model name str
         self.push_model_to_registry(uid, model_name, q_estimator)
-        self.save_replay_buffer(uid, real_buffer, simulation=False)
+        self.save_replay_buffer(uid, buffer, simulation=simulation)
 
         # Update training summary
         training_summary = self.get_training_summary(uid)
-        if "n_trainings" not in training_summary:
-            training_summary["n_trainings"] = 0
-        training_summary["n_trainings"] += 1
+        if simulation:
+            if "n_real_trainings" not in training_summary:
+                training_summary["n_real_trainings"] = 0
+            training_summary["n_real_trainings"] += 1
+        else:
+            if "n_sim_trainings" not in training_summary:
+                training_summary["n_sim_trainings"] = 0
+            training_summary["n_sim_trainings"] += 1
         self.save_training_summary(uid, training_summary)
 
         # Log the start of the training process
@@ -135,13 +152,13 @@ class ControlModule(Module):
                 LOG_SIM_T_KEY: index,
                 LOG_ENTITY_KEY: "Control Module",
                 LOG_METHOD_KEY: "rl_training",
-                LOG_MESSAGE_KEY: "Training completed successfully.",
+                LOG_MESSAGE_KEY: f"Training (sim={simulation}) completed successfully.",
             }
         )
 
         # Delete unused variables and force garbage collection
         del (
-            real_buffer,
+            buffer,
             q_estimator,
             available_models,
             err_list,
@@ -180,6 +197,7 @@ class ControlModule(Module):
         state_columns: list[str],
         rl_config: RLConfig,
         model_name: None | str = None,
+        use_lite_inference: bool = False,
     ) -> None:
         # Work with a copy of the input data
         scaled_df = scaled_data.copy()
@@ -193,7 +211,7 @@ class ControlModule(Module):
         available_models = self.get_available_models_in_registry(uid)
         model_name = available_models[-1] if model_name is None else model_name
         q_estimator = self.get_model_from_registry(uid, model_name)
-        q_factors = q_estimator.forward_pass(states)
+        q_factors = q_estimator.forward_pass(states, lite_model=use_lite_inference)
 
         # Delete unused variables and force garbage collection
         del scaled_df, states, q_estimator
@@ -349,16 +367,24 @@ class ControlModule(Module):
     def push_model_to_registry(
         self, uid: str, model_name: str, q_estimator: DDQNPREstimator
     ) -> None:
+        # Store in cache
+        if uid not in self.cache_registry:
+            self.cache_registry[uid] = {}
+        self.cache_registry[uid][model_name] = q_estimator
+
+        # Save locally
         model_dir = os.path.join(self.base_dir, uid, "ddqn_models")
         if not os.path.isdir(model_dir):
             os.makedirs(model_dir)
         model_file = os.path.join(model_dir, model_name)
         q_estimator.to_file(model_file)
 
-        # Delete unused variables and force garbage collection
-        del q_estimator
-
     def get_model_from_registry(self, uid: str, model_name: str) -> DDQNPREstimator:
+        # Try to use cache if available
+        if uid in self.cache_registry and model_name in self.cache_registry[uid]:
+            return self.cache_registry[uid][model_name]
+
+        # Else load locally
         model_file = os.path.join(self.base_dir, uid, "ddqn_models", model_name)
         model = DDQNPREstimator.from_file(model_file)
         return model
@@ -371,3 +397,10 @@ class ControlModule(Module):
         )
         # training_df = pd.read_sql(f"SELECT * FROM {TABLE_DQN_TRAINING}", db_connection)
         return training_df
+
+    def to_file(self, *arg, **kwargs) -> None:
+        # Do not save unpickleable elements
+        temp_var = self.cache_registry
+        del self.cache_registry
+        super().to_file(*arg, **kwargs)
+        self.cache_registry = temp_var

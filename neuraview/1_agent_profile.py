@@ -4,6 +4,7 @@ import streamlit as st
 from global_variables import DATA_MODULE_KEY, SELECTED_SIM_CONFIG_KEY
 from sidebar_utils import generate_sidebar
 from agent_utils import show_agent_ui
+from data_utils import load_config_file
 
 # Page title and sidebar initialization
 st.header("♟️ Agent Profile")
@@ -22,7 +23,7 @@ if DATA_MODULE_KEY in st.session_state:
         show_agent_ui(
             agent_uid,
             st.session_state[SELECTED_SIM_CONFIG_KEY].agents[agent_uid],
-            locked=False,
+            locked=True,
         )
 
     if agent_uid is not None:
@@ -36,4 +37,9 @@ if DATA_MODULE_KEY in st.session_state:
         )
 
 else:
-    st.warning("No data loaded. Please select a simulation.")
+    config = load_config_file("config.json")
+    show_agent_ui(
+        agent_uid="",
+        agent_config=config.agents["Agent001"],
+        locked=False,
+    )

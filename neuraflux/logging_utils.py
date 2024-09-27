@@ -30,6 +30,7 @@ class StructuredLogHandler(StreamHandler):
 
         # Verify input is a dict
         if not isinstance(logging_dict, dict):
+            return
             raise ValueError(
                 f"Logging message must be a dictionary. Received {type(logging_dict)}: {logging_dict}"
             )

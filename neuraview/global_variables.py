@@ -25,6 +25,7 @@ ALL_SIM_AGENTS_LIST_KEY = "all_sim_agents_list"
 PRELOADED_AGENTS_LIST_KEY = "preloaded_agents_list"
 PRELOADED_AGENTS_KEY = "preloaded_agents"
 PRELOADED_AGENTS_DF_KEY = "preloaded_agents_df"
+PRELOADED_SHADOW_ASSET_DF_KEY = "preloaded_shadow_asset_df"
 
 CONTROL_MODULE_KEY = "control_module"
 DATA_MODULE_KEY = "data_module"
@@ -87,6 +88,16 @@ ASSET_INTERNAL_COMPONENTS_DICT: dict[AvailableAssetsEnum, dict] = {
     AvailableAssetsEnum.SOLAR_PANEL: {},
     AvailableAssetsEnum.WIND_TURBINE: {},
 }
+
+SANITIZED_PRODUCTS_MAPPING: dict[str, str] = {
+    "Building HVAC Optimization": "Energy Efficiency",
+    "Demand Response": "Demand Response",
+    "Dynamic Pricing (CAISO)": "Arbitrage",
+    "Tariff Optimization": "Tariff Optimization",
+    "Tariff, GHG, and DR Optimization": "Decarbonization",
+    "DYNAMIC_PRICING": "Arbitrage",
+}
+
 
 PRODUCTS_DESCRIPTION_DICT: dict[str, str] = {
     "Arbitrage": "Utilize fluctuating market prices by strategically buying energy when prices are low and selling or consuming it when prices are high to maximize financial returns.",

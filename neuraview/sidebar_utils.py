@@ -1,18 +1,21 @@
+import datetime as dt
 import os
 
 import streamlit as st
 from data_utils import (
+    get_agent_in_active_simulation,
     get_simulations_from_directory,
     load_data_in_session,
-    get_agent_in_active_simulation,
+    clear_simulation_data_from_session_state,
 )
 from global_variables import (
+    ALL_SIM_AGENTS_LIST_KEY,
+    PRELOADED_AGENTS_DF_KEY,
+    PRELOADED_AGENTS_KEY,
+    PRELOADED_AGENTS_LIST_KEY,
+    PRELOADED_SHADOW_ASSET_DF_KEY,
     SELECTED_SIM_NAME_KEY,
     SIMS_ROOT_DIR,
-    PRELOADED_AGENTS_LIST_KEY,
-    PRELOADED_AGENTS_KEY,
-    PRELOADED_AGENTS_DF_KEY,
-    ALL_SIM_AGENTS_LIST_KEY,
 )
 
 
@@ -40,6 +43,7 @@ def generate_sidebar():
     if new_sim_clicked:
         st.session_state["new_sim_clicked"] = True
         st.session_state["load_sim_clicked"] = False
+        clear_simulation_data_from_session_state()
         st.switch_page("9_simulation_config.py")
     if load_sim_clicked:
         st.session_state["new_sim_clicked"] = False
@@ -67,6 +71,34 @@ def generate_sidebar():
             with st.spinner("Loading ..."):
                 load_data_in_session(selected_sim_full_dir)
 
+            # Define date range
+            col01, col02 = st.sidebar.columns(2)
+            # start_date, end_date = st.sidebar.slider(
+            #     "Select date range",
+            #     min_value=dt.date(2023, 1, 1),
+            #     max_value=dt.date(2023, 5, 31),
+            #     value=(dt.date(2023, 1, 1), dt.date(2023, 1, 7)),
+            # )
+
+            if "start_date" not in st.session_state:
+                st.session_state["start_date"] = dt.date(2023, 1, 1)
+            if "end_date" not in st.session_state:
+                st.session_state["end_date"] = dt.date(2023, 1, 7)
+
+            st.session_state["start_date"] = col01.date_input(
+                "Start Date", value=st.session_state["start_date"]
+            )
+            st.session_state["end_date"] = col02.date_input(
+                "End Date", value=st.session_state["end_date"]
+            )
+            # Convert date to datetime
+            start_datetime = dt.datetime.combine(
+                st.session_state["start_date"], dt.time(0, 0, 0)
+            )
+            end_datetime = dt.datetime.combine(
+                st.session_state["end_date"] - dt.timedelta(days=1), dt.time(23, 59, 59)
+            )
+
             # PRE-LOAD AGENTS DATA
             # Get list of all agents in simulation
             all_agents_list = st.session_state[ALL_SIM_AGENTS_LIST_KEY]
@@ -88,6 +120,9 @@ def generate_sidebar():
                 if PRELOADED_AGENTS_DF_KEY not in st.session_state:
                     st.session_state[PRELOADED_AGENTS_DF_KEY] = {}
 
+                if PRELOADED_SHADOW_ASSET_DF_KEY not in st.session_state:
+                    st.session_state[PRELOADED_SHADOW_ASSET_DF_KEY] = {}
+
                 # Loop over selected agents and pre-load their data
                 for agent_uid in st.session_state[PRELOADED_AGENTS_LIST_KEY]:
                     # If agent not in memory, load it
@@ -102,7 +137,10 @@ def generate_sidebar():
                                     agent
                                 )
 
+                                # Agent data
                                 df = agent.get_data(
+                                    start_time=start_datetime,
+                                    end_time=end_datetime,
                                     tariff_data=True,
                                     product_data=True,
                                     time_features=True,
@@ -110,4 +148,18 @@ def generate_sidebar():
                                 st.session_state[PRELOADED_AGENTS_DF_KEY][agent_uid] = (
                                     df
                                 )
+
+                                # Shadow asset data
+                                shadow_df = agent.get_data(
+                                    start_time=start_datetime,
+                                    end_time=end_datetime,
+                                    tariff_data=True,
+                                    product_data=True,
+                                    time_features=True,
+                                    shadow_asset=True,
+                                )
+                                st.session_state[PRELOADED_SHADOW_ASSET_DF_KEY][
+                                    agent_uid
+                                ] = shadow_df
+
     st.sidebar.info("Developed by Ysael Desage.")

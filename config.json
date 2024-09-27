@@ -14,7 +14,7 @@
             "control": {
                 "n_controllers": 1,
                 "n_trajectory_samples": 1,
-                "trajectory_length": 6,
+                "trajectory_length": 12,
                 "reinforcement_learning": {
                     "state_signals": null,
                     "action_size": null,
@@ -44,13 +44,12 @@
                 },
                 "tracked_signals": [
                     "internal_energy",
-                    "market_price_t",
-                    "market_price_t+1",
-                    "market_price_t+2",
-                    "market_price_t+3",
-                    "market_price_t+4",
-                    "market_price_t+5",
-                    "market_price_t+6"
+                    "market_price_t-1",
+                    "market_price_t-2",
+                    "market_price_t-3",
+                    "market_price_t-4",
+                    "market_price_t-5",
+                    "market_price_t-6"
                 ],
                 "signals_info": {
                     "internal_energy": {
@@ -67,108 +66,46 @@
                             0
                         ]
                     },
-                    "market_price_t": {
-                        "min_value": null,
-                        "max_value": null,
-                        "scalable": false,
-                        "source": "product",
+                    "market_price_t-1": {
                         "tags": [
                             "W",
                             "S"
-                        ],
-                        "temporal_knowledge": [
-                            null,
-                            0
                         ]
                     },
-                    "market_price_t+1": {
-                        "min_value": null,
-                        "max_value": null,
-                        "scalable": false,
-                        "source": "product",
+                    "market_price_t-2": {
                         "tags": [
                             "W",
                             "S"
-                        ],
-                        "temporal_knowledge": [
-                            null,
-                            0
                         ]
                     },
-                    "market_price_t+2": {
-                        "min_value": null,
-                        "max_value": null,
-                        "scalable": false,
-                        "source": "product",
+                    "market_price_t-3": {
                         "tags": [
                             "W",
                             "S"
-                        ],
-                        "temporal_knowledge": [
-                            null,
-                            0
                         ]
                     },
-                    "market_price_t+3": {
-                        "min_value": null,
-                        "max_value": null,
-                        "scalable": false,
-                        "source": "product",
+                    "market_price_t-4": {
                         "tags": [
                             "W",
                             "S"
-                        ],
-                        "temporal_knowledge": [
-                            null,
-                            0
                         ]
                     },
-                    "market_price_t+4": {
-                        "min_value": null,
-                        "max_value": null,
-                        "scalable": false,
-                        "source": "product",
+                    "market_price_t-5": {
                         "tags": [
                             "W",
                             "S"
-                        ],
-                        "temporal_knowledge": [
-                            null,
-                            0
                         ]
                     },
-                    "market_price_t+5": {
-                        "min_value": null,
-                        "max_value": null,
-                        "scalable": false,
-                        "source": "product",
+                    "market_price_t-6": {
                         "tags": [
                             "W",
                             "S"
-                        ],
-                        "temporal_knowledge": [
-                            null,
-                            0
-                        ]
-                    },
-                    "market_price_t+6": {
-                        "min_value": null,
-                        "max_value": null,
-                        "scalable": false,
-                        "source": "product",
-                        "tags": [
-                            "W",
-                            "S"
-                        ],
-                        "temporal_knowledge": [
-                            null,
-                            0
                         ]
                     }
                 }
             },
-            "product": "DYNAMIC_PRICING",
-            "tariff": "NO_TARIFF"
+            "product": "Arbitrage (HOEP Market)",
+            "tariff": "No Tariff"
         }
     },
     "assets": {
@@ -202,13 +139,13 @@
             ]
         }
     },
-    "directory": "simulations/NewSim1",
+    "directory": "simulations/SimHOEP1",
     "geography": {
         "city": "Chicago"
     },
     "seed": 42,
     "time": {
-        "start_time": "2023-01-01_00-00-00",
+        "start_time": "2023-01-02_00-00-00",
         "end_time": "2023-06-1_00-00-00",
         "step_size_s": 300
     }

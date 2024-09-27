@@ -16,6 +16,7 @@ from neuraflux.assets.building import Building
 from neuraflux.assets.electric_vehicle import ElectricVehicle
 from neuraflux.assets.energy_storage import EnergyStorage
 from neuraflux.global_variables import (
+    CONTROL_KEY,
     DT_STR_FORMAT,
     LOG_ENTITY_KEY,
     LOG_MESSAGE_KEY,
@@ -162,7 +163,19 @@ class Simulation:
                     asset.auto_step(self.time_info.t, self.weather_info.temperature)
 
                 # Keep shadow asset in sync with the real asset for comparison
-                shadow_asset.auto_step(self.time_info.t, self.weather_info.temperature)
+                shadow_control = shadow_asset.get_auto_control(
+                    self.time_info.t, self.weather_info.temperature
+                )
+                shadow_control_dict = {}
+                for c in range(len(shadow_control)):
+                    control_key = CONTROL_KEY + "_" + str(c + 1)
+                    shadow_control_dict[control_key] = shadow_control[c].value
+                agent._push_control_data_to_db(
+                    shadow_control_dict, self.time_info.t, shadow_asset=True
+                )
+                shadow_asset.step(
+                    shadow_control, self.time_info.t, self.weather_info.temperature
+                )
 
             # Agent update/training loop
             if elapsed_minutes % (60 * 24 * 7) == 0 and elapsed_minutes != 0:
@@ -177,8 +190,26 @@ class Simulation:
                     agent.rl_training()
                     time_train_ends = dt.datetime.now(dt.UTC)
                     print(
-                        f"Training time (s): {(time_train_ends - time_train_starts).total_seconds()}"
+                        f"Real Training time (s): {(time_train_ends - time_train_starts).total_seconds()}"
                     )
+
+            # Simulated agent training loop
+            if (
+                elapsed_minutes % (60 * 24 * 1) == 0
+                and elapsed_minutes != 0
+                and elapsed_minutes >= 60 * 24 * 7
+            ):
+                print("Simulated training loop")
+                time_train_starts = dt.datetime.now(dt.UTC)
+                n_samples = 100
+                if elapsed_minutes == 60 * 24 * 7:
+                    n_samples = 700
+                for uid, agent in self.agents.items():
+                    agent.simulated_rl_training(n_samples=n_samples)
+                time_train_ends = dt.datetime.now(dt.UTC)
+                print(
+                    f"   Sim Training time (s): {(time_train_ends - time_train_starts).total_seconds()}"
+                )
 
     def save(self) -> None:
         raise NotImplementedError
