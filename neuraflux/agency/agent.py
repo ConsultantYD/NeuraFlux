@@ -119,17 +119,20 @@ class Agent:
         df = self.get_data(start_time=start_time, time_features=True)
         return df
 
-    def get_q_factors(self, rl_df: None | pd.DataFrame = None, use_lite_inference:bool=False) -> np.ndarray:
+    def get_q_factors(
+        self, rl_df: None | pd.DataFrame = None, use_lite_inference: bool = False
+    ) -> np.ndarray:
         rl_df = self.get_data_for_rl_at_time() if rl_df is None else rl_df
-        
+
         # Keep only the necessary history length to have a batch of 1
         if use_lite_inference:
-            rl_df = rl_df.iloc[-self.rl_config.history_length:]
-        
+            rl_df = rl_df.iloc[-self.rl_config.history_length :]
+
         # Scale the dataframe
         scaled_rl_df = self.data_module.scale_dataframe_from_scaling_dict(
             rl_df, self.uid
         )
+
         q_factors = self.control_module.get_raw_q_factors(
             self.uid,
             scaled_rl_df,
@@ -185,8 +188,16 @@ class Agent:
                     policy_fn = self.apply_policy_random
             control_data = policy_fn(**policy_kwargs)
         else:
-            # TODO: Replace random policy with reading default asset one
-            control_data = self.apply_policy_random()
+            # control_data = self.apply_policy_random()
+            # Use asset's default if not ready
+            controls_list = self.asset.get_auto_control(
+                timestamp=self.time_info.t,
+                outside_air_temperature=self.weather_info.temperature,
+            )
+            control_data = {
+                CONTROL_KEY + "_" + str(i + 1): c.value
+                for i, c in enumerate(controls_list)
+            }
 
         # Store controls generated to the database if desired
         if store_controls:
@@ -263,7 +274,7 @@ class Agent:
         # Loop over controllers and generate control data
         for c, q_tensor in enumerate(q_factors):  # c = controller
             # Take mean of all objectives if there are multiple
-            q_values = np.mean(q_tensor[c, :, :], axis=0)
+            q_values = np.mean(q_tensor[0, :, :], axis=0)
             control_key = CONTROL_KEY + "_" + str(c + 1)
             # Random action probability
             if np.random.rand() < epsilon:  # Random action
@@ -403,7 +414,9 @@ class Agent:
         samples_batch = (
             df.index[:-history_len]
             if n_samples is None
-            else np.random.choice(df.index[:-history_len], n_samples, replace=False)
+            else np.random.choice(
+                df.index[: -(history_len + traj_len)], n_samples, replace=False
+            )
         )
 
         for t in samples_batch:
@@ -507,7 +520,9 @@ class Agent:
 
             #########
             # control_values = list(policy(**policy_kwargs).values())
-            control_values = self.apply_policy_q_max(rl_df, epsilon=0.5, boltzmann=True, use_lite_inference=True)
+            control_values = self.apply_policy_q_max(
+                rl_df, epsilon=0.5, boltzmann=True, use_lite_inference=True
+            )
 
             df.loc[current_idx, control_cols] = control_values
             df[control_cols] = df[control_cols].astype("Int64")

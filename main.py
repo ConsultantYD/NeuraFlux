@@ -97,7 +97,7 @@ if __name__ == "__main__":
     with open("config.json", "r") as f:
         config_dict = json.load(f)
 
-    SIMULATION_CONFIG = SimulationConfig.model_validate(config_dict)
+    SIMULATION_CONFIG = SimulationConfig.from_custom_dict(config_dict)
     # SIMULATION_CONFIG = SimulationConfig.model_construct(config_dict)
 
     # Execute the simulation

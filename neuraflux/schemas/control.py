@@ -32,3 +32,4 @@ class ContinuousControl(BaseSchema):
 class PolicyEnum(Enum):
     Q_MAX = "q_max"
     RANDOM = "random"
+    HVAC = "hvac"

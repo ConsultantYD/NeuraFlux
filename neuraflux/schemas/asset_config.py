@@ -131,11 +131,11 @@ class AssetConfig(BaseSchema):
 class BuildingConfig(AssetConfig):
     asset_type: AvailableAssetsEnum = AvailableAssetsEnum.COMMERCIAL_BUILDING
     control_power_mapping: dict[int, float] = {
-        0: 20,  # Cooling Stage 2
-        1: 10,  # Cooling Stage 1
+        0: 40,  # Cooling Stage 2
+        1: 20,  # Cooling Stage 1
         2: 0,  # Control Off
-        3: 10,  # Heating Stage 1
-        4: 20,  # Heating Stage 2
+        3: 20,  # Heating Stage 1
+        4: 40,  # Heating Stage 2
     }
     tracked_variables: list[str] = [
         "temperature",

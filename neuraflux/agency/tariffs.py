@@ -64,6 +64,7 @@ class NoTariff(Tariff):
     currency: str = ""  # Currency in which the tariff is expressed
     base_rate: float = 0.0  # Base rate for the tariff
     charge_period: str = "None"  # Period for which the charges are calculated
+
     def calculate_price(
         self,
         time: dt.datetime | None = None,
@@ -145,7 +146,12 @@ class HydroQuebecDTariff(Tariff):
         return "HydroQuebec Rate D"
 
     def calculate_price_vector(self, df: pd.DataFrame) -> pd.DataFrame:
-        raise NotImplementedError
+        df = df.copy()
+        for index, row in df.iterrows():
+            df.loc[index, TARIFF_KEY] = self.calculate_price(
+                time=row.name, energy=row[ENERGY_KEY]
+            )
+        return df
 
 
 class HydroQuebecMTariff(Tariff):
@@ -193,7 +199,7 @@ class OntarioTOUTariff(Tariff):
     charge_type_consumption: bool = True
     charge_type_fixed: bool = True
     charge_type_quantity: bool = True
-    kw_range: tuple[float | None, float | None] = (0., 50.)
+    kw_range: tuple[float | None, float | None] = (0.0, 50.0)
     on_peak: float = 0.151
     mid_peak: float = 0.102
     off_peak: float = 0.074
@@ -239,7 +245,7 @@ class OntarioTOUTariff(Tariff):
 
     def client_facing_name(self) -> str:
         return "General, TOU < 50 kW"
-        #return "Ontario TOU"
+        # return "Ontario TOU"
 
 
 class DynamicPricingTariff(Tariff):
@@ -326,7 +332,7 @@ class AvailableTariffsEnum(Enum):
     ONTARIO_GEN_TOU = OntarioTOUTariff
     HYDRO_QUEBEC_M = HydroQuebecMTariff
     DYNAMIC_PRICING = DynamicPricingTariff
-    #HOEP_MARKET = HOEPMarketTariff
+    # HOEP_MARKET = HOEPMarketTariff
 
     @classmethod
     def list_tariffs(cls):
