@@ -37,3 +37,13 @@ class SimulationConfig(BaseSchema):
     geography: SimulationGeographicalConfig
     seed: int = 42
     time: SimulationTimeConfig
+
+    # NOTE: Method to choose the correct asset configuration based on the asset type
+    @classmethod
+    def from_custom_dict(cls, data: dict):
+        self = cls.model_validate(data)
+        for asset_name, asset_config in data["assets"].items():
+            if asset_config["asset_type"].lower() == "commercial building":
+                asset_config = BuildingConfig.model_validate(asset_config)
+            self.assets[asset_name] = asset_config
+        return self

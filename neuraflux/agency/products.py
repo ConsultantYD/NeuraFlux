@@ -235,56 +235,6 @@ class HOEPMarketProduct(Product):
         return "Arbitrage (HOEP Market)"
 
 
-# class HOEPMarketProduct(Product):
-#     def __init__(
-#         self,
-#         price_file_path: str = "datasets/hoep_interpolated_2023.csv",
-#         period: int = 3,
-#     ):
-#         # Reading the dynamic prices from the provided CSV file
-#         self.dynamic_prices_df = pd.read_csv(
-#             price_file_path, index_col=0, parse_dates=True
-#         )
-
-#         # TODO: Update HOEP dataset to begin at 00:00:00, and remove below
-#         self.dynamic_prices_df.index = self.dynamic_prices_df.index - dt.timedelta(
-#             hours=1
-#         )
-
-#         self.period = period
-
-#     def get_price(self, time: dt.datetime) -> float:
-#         # Find the closest time index in the DataFrame to the given time
-#         closest_time = self.dynamic_prices_df.index.get_loc(time)
-#         return self.dynamic_prices_df.iloc[closest_time]["HOEP"]
-
-#     def calculate_rewards(self, df: DataFrame) -> np.ndarray:
-#         # Assuming the DataFrame has a datetime index and an 'energy' column
-#         df = df.copy()
-#         prices = [
-#             self.get_price(time=row.name) * -row[ENERGY_KEY]
-#             for index, row in df.iterrows()
-#         ]
-#         df[REWARD_KEY + "_ENERGY"] = prices
-
-#         # Set the value to be negative penalty if internal energy is 0 and action is 0
-#         if "control_1" in df.columns:
-#             filter = (df["internal_energy"] == 0) & (df["control_1"] == 0)
-#             df.loc[filter, REWARD_KEY + "_ENERGY"] = -2500
-
-#         return df[REWARD_KEY + "_ENERGY"].values
-
-#     def get_reward_names(self) -> list[str]:
-#         reward_names = [REWARD_KEY + "_ENERGY"]
-#         return reward_names
-
-#     def calculate_total_price(self, df: pd.DataFrame) -> np.ndarray:
-#         raise NotImplementedError
-
-#     def client_facing_name(self) -> str:
-#         return "Arbitrage (HOEP Market)"
-
-
 class HVACBuildingProduct(Product):
     def __init__(self, period: int = 2):
         self.period = period
@@ -348,9 +298,6 @@ class HVACBuildingProduct(Product):
             REWARD_KEY + "_ENERGY",
         ]
         return reward_names
-
-    def calculate_total_price(self, df: pd.DataFrame) -> np.ndarray:
-        raise NotImplementedError
 
     def client_facing_name(self) -> str:
         return "Building HVAC Optimization"
