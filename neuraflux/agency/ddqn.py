@@ -1,9 +1,9 @@
 import logging as log
 import os
+import traceback
 from copy import copy
 from dataclasses import dataclass
 from shutil import rmtree
-import traceback
 
 import dill
 import numpy as np
@@ -404,33 +404,6 @@ class DDQNPREstimator:
         # Clean up the model directory.
         rmtree(MODEL_DIR)
 
-    # def _build_model(self) -> Model:
-    #     # initializer = tf.keras.initializers.Zeros()
-    #     input_layer = tf.keras.layers.Input(
-    #         shape=(self.sequence_len, self.state_size)
-    #     )
-
-    #     x = tf.keras.layers.LSTM(
-    #         128, activation="tanh", return_sequences=False
-    #     )(input_layer)
-
-    #     q_values_list = [
-    #         tf.keras.layers.Dense(
-    #             self.action_size,
-    #             activation="linear",
-    #         )(x)
-    #         for _ in range(self.n_rewards)
-    #     ]
-
-    #     model = Model(inputs=[input_layer], outputs=q_values_list)
-    #     model.compile(
-    #         optimizer=tf.keras.optimizers.Adam(
-    #             learning_rate=self.learning_rate, clipnorm=1
-    #         ),
-    #         loss="mse",
-    #     )
-
-    #     return model
 
     def _build_model(self) -> Model:
         # Clear the session to free up memory

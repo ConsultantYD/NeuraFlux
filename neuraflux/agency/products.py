@@ -7,6 +7,7 @@ import pandas as pd
 from pandas.core.api import DataFrame as DataFrame
 
 from neuraflux.global_variables import (
+    CONTROL_KEY,
     DONE_KEY,
     ENERGY_KEY,
     REWARD_KEY,
@@ -63,6 +64,41 @@ class Product(metaclass=ABCMeta):
         return df
 
 
+class LoadMatcherValidatorProduct(Product):
+    def __init__(self, period: int = 2):
+        # Apply default class init
+        super().__init__(period)
+
+    def calculate_rewards(self, df) -> np.ndarray:
+        # Return positive if equal, negative otherwise
+        vec = np.abs(df["load"].values - df[CONTROL_KEY + "_1"].values)
+        vec = np.clip(vec, 0, 1)
+        vec = vec * -100 + 10
+        return vec.reshape(-1, 1)
+
+    def client_facing_name(self) -> str:
+        return "Optimization Validator"
+
+
+class SinglePoleBalancerValidatorProduct(Product):
+    def calculate_rewards(self, df) -> np.ndarray:
+        # Return a reward row-wise equal to the up_counter value
+        reward = df["up_counter"].values.reshape(-1, 1) / 10
+        # Put a negative reward the row before up_counter is 0
+        reward[np.where(df["up_counter"].values == 0)[0] - 1] = -50
+        return reward
+
+    def calculate_dones(self, df):
+        # Return done the row before up_counter is 0
+        done = np.zeros(df.shape[0])
+        done[np.where(df["up_counter"].values == 0)[0] - 1] = 1
+        df[DONE_KEY] = done.astype(bool)
+        return df
+
+    def client_facing_name(self) -> str:
+        return "Single Pole Balancer Validator"
+
+
 class SimpleTariffOptimizationProduct(Product):
     def calculate_rewards(self, df: pd.DataFrame) -> np.ndarray:
         df = df.copy()
@@ -85,13 +121,32 @@ class DemandResponseProduct(Product):
         return df[[REWARD_KEY]].values
 
     def get_reward_names(self) -> list[str]:
-        return [REWARD_KEY + "_DR"]
+        return [REWARD_KEY]
 
     def calculate_total_price(self, df: pd.DataFrame) -> np.ndarray:
         return -1 * self.calculate_rewards(df)
 
     def client_facing_name(self) -> str:
         return "Demand Response"
+    
+    
+class PureDemandResponseProduct(Product):
+    def calculate_rewards(self, df: pd.DataFrame) -> np.ndarray:
+        df = df.copy()
+        df[REWARD_KEY] = -df[ENERGY_KEY].values  # type: ignore
+        df.loc[
+            (df.index.hour < 15) | (df.index.hour >= 19), REWARD_KEY  # type: ignore # noqa: E501
+        ] = 0
+        return df[[REWARD_KEY]].values
+
+    def get_reward_names(self) -> list[str]:
+        return [REWARD_KEY]
+
+    def calculate_total_price(self, df: pd.DataFrame) -> np.ndarray:
+        return -1 * self.calculate_rewards(df)
+
+    def client_facing_name(self) -> str:
+        return "Pure Demand Response"
 
 
 class CAISODynamicPricingProduct(Product):
@@ -411,11 +466,14 @@ class EvDrTouGhgProduct(Product):
 @unique
 class AvailableProductsEnum(Enum):
     DEMAND_RESPONSE = DemandResponseProduct
+    PURE_DEMAND_RESPONSE = PureDemandResponseProduct
     DYNAMIC_PRICING = CAISODynamicPricingProduct
     EV_DR = EvDrTouGhgProduct
     HVAC_BUILDING = HVACBuildingProduct
     HOEP_MARKET = HOEPMarketProduct
     SIMPLE_TARIFF_OPT = SimpleTariffOptimizationProduct
+    LOAD_MATCHER_VALIDATOR = LoadMatcherValidatorProduct
+    SINGLE_POLE_BALANCER_VALIDATOR = SinglePoleBalancerValidatorProduct
 
     @classmethod
     def list_products(cls):

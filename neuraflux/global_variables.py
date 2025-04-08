@@ -1,12 +1,28 @@
 from neuraflux.geography import CityEnum
 
 TIMESTAMP_KEY = "timestamp"
-DT_STR_FORMAT = "%Y-%m-%d_%H-%M-%S"
+DT_STR_FORMAT = "%Y-%m-%dT%H:%M:%S"  # ISO 8601 format
+
+# Agent in Memory Storage
+MS_AGENT_CONTROL_DATA_KEY = "agent_control_data"
+MS_AGENT_SIM_DATA_KEY = "agent_sim_data"
+MS_AGENT_REAL_TRAINING_KEY = "agent_real_training"
+MS_AGENT_SIM_TRAINING_KEY = "agent_sim_training"
+MS_ASSET_SIGNAL_DATA_KEY = "asset_signal_data"
+MS_SHADOW_ASSET_SIGNAL_DATA_KEY = "asset_shadow_signal_data"
 
 FILE_SCALING = "scaling_info"
 FILE_REAL_REPLAY_BUFFER = "real_replay_buffer"
 FILE_SIM_REPLAY_BUFFER = "sim_replay_buffer"
 
+# LOCAL DATABASE AND TABLES
+TIMESTAMP_PARTITION_COL = "partition_date"
+
+METADATA_FILE_KEY = "metadata.json"
+REPLAY_BUFFERS_FILENAME = "replay_buffers.dill"
+
+
+TABLE_AGENT_DATA = "agent_data"
 TABLE_SIGNALS = "asset_signals"
 TABLE_SIGNALS_SHADOW = "shadow_asset_signals"
 TABLE_CONTROLS = "agent_controls"
@@ -18,7 +34,7 @@ TABLE_VIRTUAL_DQN_TRAINING = "virtual_ddqn_training_"
 ENERGY_KEY = "energy"
 CUMULATIVE_ENERGY_KEY = "cumulative_energy"
 POWER_KEY = "power"
-OAT_KEY = "outside_air_temperature"
+OAT_KEY = "oat"
 
 CONTROL_KEY = "control"
 REWARD_KEY = "reward"

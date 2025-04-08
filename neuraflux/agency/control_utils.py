@@ -66,8 +66,11 @@ def convert_data_to_experience(
     dataframe to a zip of experience tuples.
 
     Args:
-        uid (Union[int, str]): The unique identifier of the asset.
-        data (pd.DataFrame): The data to push to the replay buffer.
+        data (pd.DataFrame): Dataframe of data.
+        seq_len (int): Length of the sequence.
+        state_columns (list[str]): List of state columns.
+        control_columns (list[str]): List of control columns.
+        reward_columns (list[str]): List of reward columns.
     """
     data = data.copy()
     # Convert the dataframe to its NumPy representations

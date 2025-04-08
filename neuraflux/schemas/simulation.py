@@ -1,16 +1,9 @@
+from neuraflux.assets.factory import AvailableAssetsEnum
 from neuraflux.geography import CityEnum
 from neuraflux.local_typing import UidType
 from neuraflux.schemas.agency import AgentConfig
-from neuraflux.schemas.asset_config import (
-    BuildingConfig,
-    ElectricVehicleConfig,
-    EnergyStorageConfig,
-)
 
 from .base import BaseSchema
-
-# TODO: Add future asset configurations here
-AssetConfigTypes = EnergyStorageConfig | BuildingConfig | ElectricVehicleConfig
 
 
 class SimulationGeographicalConfig(BaseSchema):
@@ -21,8 +14,8 @@ class SimulationGeographicalConfig(BaseSchema):
 
 
 class SimulationTimeConfig(BaseSchema):
-    start_time: str = "2023-01-01_00-00-00"
-    end_time: str = "2023-02-01_00-00-00"
+    start_time: str = "2023-01-01T00:00:00"
+    end_time: str = "2023-02-01T00:00:00"
     step_size_s: int = 300
 
 
@@ -32,7 +25,7 @@ class SimulationDataConfig(BaseSchema):
 
 class SimulationConfig(BaseSchema):
     agents: dict[UidType, AgentConfig]
-    assets: dict[UidType, AssetConfigTypes]
+    assets: dict[UidType, object]
     directory: str = "DefaultSimulation"
     geography: SimulationGeographicalConfig
     seed: int = 42
@@ -43,7 +36,9 @@ class SimulationConfig(BaseSchema):
     def from_custom_dict(cls, data: dict):
         self = cls.model_validate(data)
         for asset_name, asset_config in data["assets"].items():
-            if asset_config["asset_type"].lower() == "commercial building":
-                asset_config = BuildingConfig.model_validate(asset_config)
+            AssetConfig = AvailableAssetsEnum.get_asset_config_class_from_asset_name(
+                asset_config["asset_type"]
+            )
+            asset_config = AssetConfig.model_validate(asset_config)
             self.assets[asset_name] = asset_config
         return self

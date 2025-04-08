@@ -62,6 +62,10 @@ class StructuredLogHandler(StreamHandler):
         )
 
         # Insert into SQLite database
-        add_dataframe_to_table(
-            log_df, self.conn, "execution_logs", index_col=LOG_TIMESTAMP_KEY
-        )
+        try:
+            add_dataframe_to_table(
+                log_df, self.conn, "execution_logs", index_col=LOG_TIMESTAMP_KEY
+            )
+        except:
+            print("Failed to add log to database.")
+            
