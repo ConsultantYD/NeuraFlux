@@ -36,8 +36,6 @@ from neuraflux.global_variables import (
 )
 from neuraflux.schemas.agency import RLConfig
 
-train_step_counter = tf.Variable(0)
-
 
 class ControlModule(Module):
     """
@@ -46,7 +44,7 @@ class ControlModule(Module):
 
     def __init__(self, base_dir: str):
         super().__init__(base_dir)
-        self.cache_registry: dict[str: dict[str:DDQNPREstimator]] = {}
+        self.cache_registry: dict[str : dict[str:DDQNPREstimator]] = {}
 
     def rl_training(
         self,
@@ -163,11 +161,10 @@ class ControlModule(Module):
 
         # Delete unused variables and force garbage collection
         del (buffer, q_estimator, available_models, err_list)
-        
+
         # After you're finished with training and using the model
         tf.keras.backend.clear_session()
         gc.collect()
-
 
     def get_rl_training_data_table(self, uid: str) -> pd.DataFrame:
         # db_connection = self.create_connection_to_agent_db(uid)

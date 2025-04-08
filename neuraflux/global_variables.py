@@ -2,6 +2,7 @@ from neuraflux.geography import CityEnum
 
 TIMESTAMP_KEY = "timestamp"
 DT_STR_FORMAT = "%Y-%m-%dT%H:%M:%S"  # ISO 8601 format
+DT_FILE_STR_FORMAT = "%Y-%m-%d_%H-%M-%S"  # File-system safe
 
 # Agent in Memory Storage
 MS_AGENT_CONTROL_DATA_KEY = "agent_control_data"
@@ -19,7 +20,7 @@ FILE_SIM_REPLAY_BUFFER = "sim_replay_buffer"
 TIMESTAMP_PARTITION_COL = "partition_date"
 
 METADATA_FILE_KEY = "metadata.json"
-REPLAY_BUFFERS_FILENAME = "replay_buffers.dill"
+REPLAY_BUFFERS_FILENAME = "replay_buffer.dill"
 
 
 TABLE_AGENT_DATA = "agent_data"

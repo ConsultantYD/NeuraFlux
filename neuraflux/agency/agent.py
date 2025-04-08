@@ -10,6 +10,7 @@ import pandas as pd
 from neuraflux.agency.control_module import ControlModule
 from neuraflux.agency.control_utils import softmax
 from neuraflux.agency.data_module import DataModule
+from neuraflux.agency.dqn import DDQNPREstimator
 from neuraflux.agency.products import AvailableProductsEnum
 from neuraflux.agency.replay_buffer import ReplayBuffer
 from neuraflux.agency.time_features import tf_all_cyclic
@@ -33,6 +34,7 @@ from neuraflux.agency.utils_registries import (
 )
 from neuraflux.global_variables import (
     CONTROL_KEY,
+    DT_FILE_STR_FORMAT,
     DT_STR_FORMAT,
     LOG_ENTITY_KEY,
     LOG_MESSAGE_KEY,
@@ -57,12 +59,11 @@ from neuraflux.local_typing import AgentInMemoryStorageType, AssetType, UidType
 from neuraflux.schemas.agency import AgentConfig, SignalTags
 from neuraflux.schemas.control import DiscreteControl, PolicyEnum
 from neuraflux.time_ref import TimeInfo
-from neuraflux.weather import WeatherInfo
-from neuraflux.agency.control_utils import (
+from neuraflux.agency.utils_control import (
     convert_data_to_experience,
-    convert_data_to_state,
     get_full_state_signals_from_rl_config,
 )
+from neuraflux.weather import WeatherInfo
 
 
 class Agent:
@@ -375,9 +376,70 @@ class Agent:
         )
         return q_factors
 
+    def get_q_estimators_list(self, registry_dir: str | None = None) -> list[str]:
+        """
+        Get the list of Q estimators for the agent, sorted by creation time.
+
+        Args:
+            registry_dir (str | None): The directory for the Q estimator registry. Defaults to None,
+                which uses the agent's directory.
+        Returns:
+            list[str]: The list of Q estimators for the agent.
+        """
+        registry_dir = self.dqn_registry_dir if registry_dir is None else registry_dir
+        available_estimators = get_entities_in_registry(registry_dir)
+        agent_available_estimators = sorted(
+            [e for e in available_estimators if e.startswith(self.uid)]
+        )
+        return agent_available_estimators
+
+    def get_q_estimator(
+        self, registry_dir: str | None = None, name: str | None = None
+    ) -> tuple[DDQNPREstimator, dict]:
+        """
+        Get the Q estimator for the agent.
+
+        Args:
+            registry_dir (str | None): The directory for the Q estimator registry. Defaults to None,
+                which uses the agent's directory.
+            name (str | None): The name of the Q estimator. If None, the latest estimator is used, or
+                a new one is created if none exist.
+        Returns:
+            tuple[DDQNPREstimator, dict]: The Q estimator for the agent and its metadata.
+        """
+        registry_dir = self.dqn_registry_dir if registry_dir is None else registry_dir
+        # Case 1 - User directly specified the name of the estimator
+        if name is not None:
+            return load_dqn_estimator_from_registry(registry_dir, name=name)
+
+        agent_available_estimators = self.get_q_estimators_list(
+            registry_dir=registry_dir
+        )
+
+        # Case 2 - User did not specify the name of the estimator, but some are available
+        if agent_available_estimators:
+            print(
+                f"Using latest estimator from registry: {agent_available_estimators[-1]}"
+            )
+            latest_estimator = agent_available_estimators[-1]
+            return load_dqn_estimator_from_registry(registry_dir, name=latest_estimator)
+
+        # Case 3 - No estimators available, create a new one
+        print("Initializing a new Q-estimator !")
+        rl_config = self.config.control.rl_config
+        state_columns = get_full_state_signals_from_rl_config(rl_config)
+        estimator = DDQNPREstimator(
+            state_size=len(state_columns),
+            action_size=rl_config.action_size,
+            sequence_len=rl_config.history_length,
+            n_controllers=self.config.control.n_controllers,
+            # NOTE: Other entries will be overwritten at fit time
+        )
+        return estimator, {}
+
     def get_replay_buffer(
         self, simulation: bool = False, registry_dir: str | None = None
-    ) -> ReplayBuffer:
+    ) -> tuple[ReplayBuffer, dict]:
         """
         Get the replay buffer for the agent.
 
@@ -385,18 +447,20 @@ class Agent:
             simulation (bool): Whether to get the simulated replay buffer. Defaults to False.
             registry_dir (str | None): The directory for the replay buffer registry. Defaults to None.
         Returns:
-            ReplayBuffer: The replay buffer for the agent.
+            tuple[ReplayBuffer, dict]: The replay buffer for the agent and its metadata.
         """
         # Define variables related to buffer
         registry_dir = (
             self.buffer_registry_dir if registry_dir is None else registry_dir
         )
-        buffer_name = self.uid + "_sim" if simulation else "_real"
+        buffer_name = self.uid + "_sim" if simulation else self.uid + "_real"
 
         # Try to retrieve the replay buffer from the registry if it exists
         available_buffers = get_entities_in_registry(registry_dir)
         if buffer_name in available_buffers:
-            buffer, _ = load_replay_buffer_from_registry(registry_dir, name=buffer_name)
+            buffer, buffer_metadata = load_replay_buffer_from_registry(
+                registry_dir, name=buffer_name
+            )
 
         # Otherwise, initialize a new replay buffer
         else:
@@ -409,7 +473,11 @@ class Agent:
                 max_len=buffer_len,
                 prioritized_replay_alpha=0.6,
             )
-        return buffer
+            buffer_metadata = {
+                "capacity": buffer_len,
+                "n_experiences": 0,
+            }
+        return buffer, buffer_metadata
 
     def get_uid(self) -> UidType:
         """
@@ -446,14 +514,14 @@ class Agent:
         simulation: bool = False,
     ):
         # Get agent's replay buffer (real or simulated)
-        replay_buffer = self.get_replay_buffer(
+        replay_buffer, replay_buffer_metadata = self.get_replay_buffer(
             simulation=simulation, registry_dir=registry_dir
         )
 
         # Define important quantities to transform data into experience
         rl_config = self.config.control.rl_config
         state_columns = rl_config.state_signals
-        state_columns = get_full_state_signals_from_rl_config(rl_config, state_columns)
+        state_columns = get_full_state_signals_from_rl_config(rl_config)
         control_columns = [col for col in data.columns if col.startswith(CONTROL_KEY)]
         seq_len = rl_config.history_length
         product = AvailableProductsEnum.from_string(self.config.product)
@@ -469,10 +537,17 @@ class Agent:
             replay_buffer.add_experience_sample(experience=experience)
 
         # Save the replay buffer to the registry
-        buffer_name = self.uid + "_sim" if simulation else "_real"
-        metadata = {"len": len(replay_buffer)}
+        buffer_name = self.uid + "_sim" if simulation else self.uid + "_real"
+        replay_buffer_metadata["n_experiences"] = len(replay_buffer)
+        print(
+            f"Replay buffer now has {replay_buffer_metadata['n_experiences']} samples."
+        )
         push_replay_buffer_to_registry(
-            registry_dir, buffer_name, replay_buffer, metadata, overwrite=True
+            registry_dir=registry_dir,
+            name=buffer_name,
+            replay_buffer=replay_buffer,
+            metadata=replay_buffer_metadata,
+            overwrite=True,
         )
 
     def rl_training(self) -> None:
@@ -500,6 +575,9 @@ class Agent:
             data=history, registry_dir=self.buffer_registry_dir
         )
 
+        buffer, _ = self.get_replay_buffer(registry_dir=self.buffer_registry_dir)
+        q_estimator, _ = self.get_q_estimator(registry_dir=self.dqn_registry_dir)
+
         # self.control_module.rl_training(
         #     self.uid,
         #     self.config.control.real_training_config.rl_config,
@@ -508,6 +586,18 @@ class Agent:
         #     state_columns,
         #     action_size,
         # )
+
+        # Push new Q-estimator to registry
+        estimator_name = self.uid + "_" + self.time_info.t.strftime(DT_FILE_STR_FORMAT)
+        estimator_metadata = {"last_training": self.time_info.get_t_as_str()}
+        push_dqn_estimator_to_registry(
+            registry_dir=self.dqn_registry_dir,
+            name=estimator_name,
+            estimator=q_estimator,
+            metadata=estimator_metadata,
+        )
+
+        del buffer, q_estimator, estimator_metadata, history
 
     def update_time_info(self, time_info: TimeInfo) -> None:
         """
