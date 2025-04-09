@@ -28,8 +28,22 @@
                 },
                 "real_learning_configs": {
                     "0": {
+                        "enabled": false,
+                        "trigger_freq_cron": "0 0 */3 * *",
+                        "rl_training_config": {
+                            "target_update_period": 20,
+                            "n_fit_epochs": 10,
+                            "experience_sampling_size": 128,
+                            "learning_rate": 0.0005,
+                            "gradient_clip": 0.5,
+                            "n_target_iterators": 20,
+                            "n_sampling_iters": 10,
+                            "tf_batch_size": 32
+                        }
+                    },
+                    "259200": {
                         "enabled": true,
-                        "trigger_freq_cron": "55 23 * * 5",
+                        "trigger_freq_cron": "0 0 */3 * *",
                         "rl_training_config": {
                             "target_update_period": 20,
                             "n_fit_epochs": 10,

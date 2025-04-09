@@ -226,6 +226,9 @@ class DDQNPREstimator:
         # Copy the states to avoid modifying the original
         states = states.copy()
 
+        # Convert dones to float
+        dones = dones.astype(float)
+
         # Calculate the necessary targets
         # was (batch_size, n_actions), is now [(batch_size, n_rewards, n_actions), ...]
         # where the len of the list is n_controllers)

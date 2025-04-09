@@ -48,7 +48,7 @@ class RLTrainingConfig(BaseSchema):
 class RealLearningConfig(BaseSchema):
     # General and orchestration
     enabled: bool = True  # Whether to enable real learning
-    trigger_freq_cron: str = "55 23 * * 5"  # Training frequency
+    trigger_freq_cron: str = "0 0 */3 * *"  # Training frequency
     # Training
     rl_training_config: RLTrainingConfig = RLTrainingConfig()
 
@@ -97,7 +97,7 @@ class SignalInfo(BaseSchema):
 class AgentControlConfig(BaseSchema):
     n_controllers: int
     rl_config: RLConfig
-    real_learning_configs: dict[int, RealLearningConfig] = {0: RealLearningConfig()}
+    real_learning_configs: dict[int, RealLearningConfig] = {0: RealLearningConfig(enabled=False), 60*60*24*3: RealLearningConfig()}
     real_replay_buffer_size: int = 10000
     sim_learning_configs: dict[int, SimLearningConfig] = {0: SimLearningConfig()}
     sim_replay_buffer_size: int = 1000
