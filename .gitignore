@@ -3,6 +3,7 @@
 .ruff_cache
 .DS_Store
 temp_cache/
+simulations/
 
 # Local repo directories with heavy elements
 simulations/

@@ -271,7 +271,7 @@ class DDQNPREstimator:
             self.model.compile(
                 optimizer=tf.keras.optimizers.Adam(
                     learning_rate=learning_rate,
-                    clipnorm=1.0,
+                    clipnorm=0.5,
                 ),
                 loss="huber",
             )

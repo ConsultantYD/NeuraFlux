@@ -29,10 +29,10 @@
                 "real_learning_configs": {
                     "0": {
                         "enabled": true,
-                        "trigger_freq_cron": "55 23 * * *",
+                        "trigger_freq_cron": "55 23 * * 5",
                         "rl_training_config": {
                             "target_update_period": 20,
-                            "n_fit_epochs": 5,
+                            "n_fit_epochs": 10,
                             "experience_sampling_size": 128,
                             "learning_rate": 0.0005,
                             "gradient_clip": 0.5,
@@ -52,7 +52,7 @@
                         "trajectory_len": 10,
                         "rl_training_config": {
                             "target_update_period": 20,
-                            "n_fit_epochs": 5,
+                            "n_fit_epochs": 10,
                             "experience_sampling_size": 128,
                             "learning_rate": 0.0005,
                             "gradient_clip": 0.5,

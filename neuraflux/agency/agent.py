@@ -14,6 +14,11 @@ from neuraflux.agency.dqn import DDQNPREstimator
 from neuraflux.agency.products import AvailableProductsEnum
 from neuraflux.agency.replay_buffer import ReplayBuffer
 from neuraflux.agency.time_features import tf_all_cyclic
+from neuraflux.agency.utils_control import (
+    convert_data_to_experience,
+    convert_data_to_state,
+    get_full_state_signals_from_rl_config,
+)
 from neuraflux.agency.utils_data import (
     add_product_data_to_df,
     add_tariff_data_to_df,
@@ -32,6 +37,7 @@ from neuraflux.agency.utils_registries import (
     push_dqn_estimator_to_registry,
     push_replay_buffer_to_registry,
 )
+from neuraflux.agency.utils_rl_training import simple_training_loop
 from neuraflux.global_variables import (
     CONTROL_KEY,
     DT_FILE_STR_FORMAT,
@@ -59,10 +65,6 @@ from neuraflux.local_typing import AgentInMemoryStorageType, AssetType, UidType
 from neuraflux.schemas.agency import AgentConfig, SignalTags
 from neuraflux.schemas.control import DiscreteControl, PolicyEnum
 from neuraflux.time_ref import TimeInfo
-from neuraflux.agency.utils_control import (
-    convert_data_to_experience,
-    get_full_state_signals_from_rl_config,
-)
 from neuraflux.weather import WeatherInfo
 
 
@@ -144,6 +146,7 @@ class Agent:
         """
         Run the agent for a given time step.
         """
+
         # 1. Collect asset data
         self.asset_data_collection()
 
@@ -168,7 +171,7 @@ class Agent:
             self.clear_in_memory_storage()
 
         # 4 TODO: Train using simulated data
-
+        
         # 5. Train using real data
         real_lr_config = get_active_config_based_on_duration(
             duration_s=self.get_elapsed_time(),
@@ -176,14 +179,15 @@ class Agent:
         )
         rl_train_freq = real_lr_config.trigger_freq_cron
         if cron_matches(self.time_info.t, rl_train_freq):
+            
+            reward = self.get_data(start_time=self.time_info.t - dt.timedelta(days=7))[
+                    "reward"
+                ].sum()
+            print(f"Reward in the last 7 days (eps = {self.epsilon}): {round(reward, 2)}")
+            
             self.rl_training()
-        #    reward = self.get_data(start_time=self.time_info.t - dt.timedelta(days=1))[
-        #        "reward"
-        #    ].sum()
-        #    print(f"Reward in the last 24h (eps = {self.epsilon}): {round(reward, 2)}")
-        #    self.rl_training()
-        #    self.epsilon = np.clip(round(self.epsilon - 0.1, 2), 0.0, 1.0)
-        #    self.control_ready = True
+            self.epsilon = np.clip(round(self.epsilon - 0.1, 2), 0.0, 1.0)
+            self.control_ready = True
         return [DiscreteControl(control)]
 
     def asset_data_collection(self):
@@ -359,23 +363,6 @@ class Agent:
 
         return final_df
 
-    def get_q_factors(self, use_lite_inference: bool = True) -> np.ndarray:
-        # Get the data just for current time-step
-        rl_seq_len = self.config.control.real_training_config.rl_config.history_length
-        delta_required = self.time_info.dt.total_seconds() * (rl_seq_len - 1)
-        start_time = self.time_info.t - dt.timedelta(seconds=delta_required)
-        df = self.get_data(start_time=start_time)
-        # df = self.get_data(start)
-        q_factors = self.control_module.get_raw_q_factors(
-            self.uid,
-            df,
-            self.data_module.get_columns_with_tag(self.config, SignalTags.RL_STATE),
-            len(list(self.cpm.keys())),
-            self.config.control.real_training_config.rl_config,
-            use_lite_inference=False,
-        )
-        return q_factors
-
     def get_q_estimators_list(self, registry_dir: str | None = None) -> list[str]:
         """
         Get the list of Q estimators for the agent, sorted by creation time.
@@ -418,14 +405,10 @@ class Agent:
 
         # Case 2 - User did not specify the name of the estimator, but some are available
         if agent_available_estimators:
-            print(
-                f"Using latest estimator from registry: {agent_available_estimators[-1]}"
-            )
             latest_estimator = agent_available_estimators[-1]
             return load_dqn_estimator_from_registry(registry_dir, name=latest_estimator)
 
         # Case 3 - No estimators available, create a new one
-        print("Initializing a new Q-estimator !")
         rl_config = self.config.control.rl_config
         state_columns = get_full_state_signals_from_rl_config(rl_config)
         estimator = DDQNPREstimator(
@@ -436,6 +419,23 @@ class Agent:
             # NOTE: Other entries will be overwritten at fit time
         )
         return estimator, {}
+
+    def get_q_factors(self, use_lite_inference: bool = True) -> np.ndarray:
+        # Get the data just for current time-step
+        rl_config = self.config.control.rl_config
+        rl_seq_len = rl_config.history_length
+        delta_required = self.time_info.dt.total_seconds() * (rl_seq_len - 1)
+        start_time = self.time_info.t - dt.timedelta(seconds=delta_required)
+        df = self.get_data(start_time=start_time)
+        # df = self.get_data(start)
+
+        state_columns = get_full_state_signals_from_rl_config(rl_config)
+        q_estimator, _ = self.get_q_estimator(self.dqn_registry_dir)
+        states = np.array(convert_data_to_state(df, state_columns, rl_seq_len))
+
+        q_factors = q_estimator.forward_pass(states)
+
+        return q_factors
 
     def get_replay_buffer(
         self, simulation: bool = False, registry_dir: str | None = None
@@ -571,23 +571,24 @@ class Agent:
         if n_samples_after != n_samples_before:
             raise ValueError("NaN values detected in training data.")
 
+        # Add new data in the replay buffer
         self.push_data_to_replay_buffer(
             data=history, registry_dir=self.buffer_registry_dir
         )
 
-        buffer, _ = self.get_replay_buffer(registry_dir=self.buffer_registry_dir)
+        # Retrieve buffer and q-estimator from registry
+        buffer, buffer_metadata = self.get_replay_buffer(registry_dir=self.buffer_registry_dir)
         q_estimator, _ = self.get_q_estimator(registry_dir=self.dqn_registry_dir)
 
-        # self.control_module.rl_training(
-        #     self.uid,
-        #     self.config.control.real_training_config.rl_config,
-        #     self.time_info.t,
-        #     self.config.product,
-        #     state_columns,
-        #     action_size,
-        # )
+        # Training loop
+        for _ in range(20):
+            q_estimator, buffer, _ = simple_training_loop(
+                replay_buffer=buffer,
+                q_estimator=q_estimator,
+            )
+            q_estimator.update_target_model()
 
-        # Push new Q-estimator to registry
+        # Save new Q-estimator to registry
         estimator_name = self.uid + "_" + self.time_info.t.strftime(DT_FILE_STR_FORMAT)
         estimator_metadata = {"last_training": self.time_info.get_t_as_str()}
         push_dqn_estimator_to_registry(
@@ -595,6 +596,17 @@ class Agent:
             name=estimator_name,
             estimator=q_estimator,
             metadata=estimator_metadata,
+        )
+
+        # Save the replay buffer to the registry
+        buffer_name = self.uid + "_real"
+        buffer_metadata["n_experiences"] = len(buffer)
+        push_replay_buffer_to_registry(
+            registry_dir=self.buffer_registry_dir,
+            name=buffer_name,
+            replay_buffer=buffer,
+            metadata=buffer_metadata,
+            overwrite=True,
         )
 
         del buffer, q_estimator, estimator_metadata, history

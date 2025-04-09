@@ -35,7 +35,7 @@ class RLConfig(BaseSchema):
 class RLTrainingConfig(BaseSchema):
     # Learning
     target_update_period: int = 20  # Number of major target network update loops
-    n_fit_epochs: int = 5  # Number of times to fit the DQN to experience
+    n_fit_epochs: int = 10  # Number of times to fit the DQN to experience
     experience_sampling_size: int = 128  # n of exp from PER at each sampling iter
     # Tensorflow training
     learning_rate: float = 5e-4  # Gradient descent learning rate in fit
@@ -48,7 +48,7 @@ class RLTrainingConfig(BaseSchema):
 class RealLearningConfig(BaseSchema):
     # General and orchestration
     enabled: bool = True  # Whether to enable real learning
-    trigger_freq_cron: str = "55 23 * * *"  # Training frequency
+    trigger_freq_cron: str = "55 23 * * 5"  # Training frequency
     # Training
     rl_training_config: RLTrainingConfig = RLTrainingConfig()
 
