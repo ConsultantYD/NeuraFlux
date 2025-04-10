@@ -16,22 +16,13 @@ from neuraflux.global_variables import (
     CONTROL_KEY,
     DT_STR_FORMAT,
     OAT_KEY,
-    TIMESTAMP_KEY,
 )
 from neuraflux.local_typing import AssetType
 from neuraflux.schemas.agency import AgentConfig
 from neuraflux.schemas.simulation import SimulationConfig
 from neuraflux.time_ref import TimeRef
 from neuraflux.weather import Weather
-from neuraflux.agency.utils_data import (
-    add_vm_data_to_df,
-    add_tariff_data_to_df,
-    add_product_data_to_df,
-    push_df_as_partitionned_parquet,
-    cron_matches,
-    read_parquet_table,
-    tf_all_cyclic,
-)
+from neuraflux.agency.utils_data import cron_matches
 
 
 class Simulation:
@@ -170,20 +161,6 @@ class Simulation:
                         uid,
                     )
                     agent.to_file(directory=agent_directory)
-
-        for uid in self.agents.keys():
-            agent_dir = os.path.join(self.directory, uid)
-            new_agent = Agent.from_dir(agent_dir)
-            shadow_asset = new_agent.shadow_asset
-            df = shadow_asset.get_historical_data()
-            df = add_vm_data_to_df(df, agent.cpm)
-            df = add_tariff_data_to_df(df, agent.config.tariff)
-            df = add_product_data_to_df(df, agent.config.product)
-
-            # Rename all columns with a "shadow_" prefix
-            df = df.rename(columns={col: f"shadow_{col}" for col in df.columns})
-
-            print(df)
 
     def _fix_seeds(self, seed_value: int) -> None:
         """

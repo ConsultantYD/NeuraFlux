@@ -11,13 +11,29 @@ from plot_utils import (
 )
 from sidebar_utils import generate_sidebar
 from streamlit import session_state as ss
+from neuraflux.agency.utils_data import (
+    add_vm_data_to_df,
+    add_tariff_data_to_df,
+    add_product_data_to_df,
+)
 
 generate_sidebar()
 
 if "agent" in ss:
+    if "shadow_df" not in ss:
+        # Get dataframe for shadow asset, to use in comparison
+        shadow_asset = ss.agent.shadow_asset
+        df = shadow_asset.get_historical_data()
+        df = add_vm_data_to_df(df, ss.agent.cpm)
+        df = add_tariff_data_to_df(df, ss.agent.config.tariff)
+        df = add_product_data_to_df(df, ss.agent.config.product)
+        ss.shadow_df = df.rename(columns={col: f"shadow_{col}" for col in df.columns})
+
     if "df" not in ss:
         ss.df = ss.agent.get_data(q_factors=True)
-        ss.df["cum_reward"] = ss.df["reward"].cumsum()
+
+        # Join with shadow_df
+        ss.df = ss.df.join(ss.shadow_df, how="outer")
 
     df = ss.df
 
@@ -46,7 +62,7 @@ if "agent" in ss:
     df["avg_cash_flow"] = -df["price_$"].rolling(window=12 * 24).mean()
     df["hourly_cash_flow"] = -df["price_$"].rolling(window=12).sum()
 
-    df["profit"] = df["price_$"] - df["price_$"]
+    df["profit"] = df["shadow_price_$"] - df["price_$"]
     df["hourly_profit"] = df["profit"].rolling(window=12).sum()
     df["daily_profit"] = df["profit"].rolling(window=12 * 24).sum()
     df["cum_profit"] = df["profit"].cumsum()
@@ -186,10 +202,9 @@ if "agent" in ss:
     with tab22:
         st.plotly_chart(fig4, use_container_width=True)
 
-
-    #fig = plotly_filled_grad_line_chart(ss.df, "cum_reward", "Blues", "blue")
-    #st.plotly_chart(fig, use_container_width=True)
-    #st.write(ss.df[ss.df.index > dt.datetime(2023, 1, 23)])
+    # fig = plotly_filled_grad_line_chart(ss.df, "cum_reward", "Blues", "blue")
+    # st.plotly_chart(fig, use_container_width=True)
+    # st.write(ss.df[ss.df.index > dt.datetime(2023, 1, 23)])
 
     # -----------------------------------------------------------------
     # FINANCIAL FLOW
@@ -238,4 +253,3 @@ if "agent" in ss:
 
     with tab23:
         st.plotly_chart(sankey_fig, use_container_width=True)
-
