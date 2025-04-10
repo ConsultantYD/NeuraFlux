@@ -56,7 +56,7 @@ class RealLearningConfig(BaseSchema):
 class SimLearningConfig(BaseSchema):
     # General and orchestration
     enabled: bool = False  # Whether to enable simulation training
-    trigger_freq_cron: str = "55 23 */3 * *"  # Training frequency
+    trigger_freq_cron: str = "55 23 */2 * *"  # Training frequency
     # Sampling and generating simulated trajectories
     # NOTE: n_traj = n_samplings(~t) * n_traj_per_sample
     n_traj_per_sample: int = 1  # Number of trajectories to generate at each sample
@@ -97,7 +97,10 @@ class SignalInfo(BaseSchema):
 class AgentControlConfig(BaseSchema):
     n_controllers: int
     rl_config: RLConfig
-    real_learning_configs: dict[int, RealLearningConfig] = {0: RealLearningConfig(enabled=False), 60*60*24*3: RealLearningConfig()}
+    real_learning_configs: dict[int, RealLearningConfig] = {
+        0: RealLearningConfig(enabled=False),
+        60 * 60 * 24 * 2: RealLearningConfig(),
+    }
     real_replay_buffer_size: int = 10000
     sim_learning_configs: dict[int, SimLearningConfig] = {0: SimLearningConfig()}
     sim_replay_buffer_size: int = 1000

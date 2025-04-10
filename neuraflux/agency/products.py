@@ -54,7 +54,7 @@ class Product(metaclass=ABCMeta):
 
         # Check if the minute of the day is 5 minutes before the end of a cycle
         cycle_minutes = self.period * 60
-        #df[DONE_KEY] = (((minutes_of_day + 5) % cycle_minutes) == 0).astype(bool)
+        # df[DONE_KEY] = (((minutes_of_day + 5) % cycle_minutes) == 0).astype(bool)
         df[DONE_KEY] = (((minutes_of_day + 10) % cycle_minutes) == 0).astype(bool)
         return df
 
@@ -128,14 +128,14 @@ class DemandResponseProduct(Product):
 
     def client_facing_name(self) -> str:
         return "Demand Response"
-    
-    
+
+
 class PureDemandResponseProduct(Product):
     def calculate_rewards(self, df: pd.DataFrame) -> np.ndarray:
         df = df.copy()
         df[REWARD_KEY] = -df[ENERGY_KEY].values  # type: ignore
         df.loc[
-            df.index.hour % 2 == 0, REWARD_KEY  # type: ignore # noqa: E501
+            (df.index.hour < 15) | (df.index.hour >= 19), REWARD_KEY  # type: ignore # noqa: E501
         ] = 0
         return df[[REWARD_KEY]].values
 

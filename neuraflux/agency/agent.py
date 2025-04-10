@@ -164,11 +164,11 @@ class Agent:
         )
         rl_train_freq = real_lr_config.trigger_freq_cron
         if real_lr_config.enabled and cron_matches(self.time_info.t, rl_train_freq):
-            reward = self.get_data(start_time=self.time_info.t - dt.timedelta(days=3))[
+            reward = self.get_data(start_time=self.time_info.t - dt.timedelta(days=2))[
                 "reward"
             ].sum()
             print(
-                f"Reward in the last 3 days (eps = {self.epsilon}): {round(reward, 2)}"
+                f"Reward in the last 2 days (eps = {self.epsilon}): {round(reward, 2)}"
             )
 
             self.rl_training()

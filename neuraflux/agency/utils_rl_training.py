@@ -7,7 +7,7 @@ from neuraflux.agency.replay_buffer import ReplayBuffer
 def simple_training_loop(
     replay_buffer: ReplayBuffer,
     q_estimator: DDQNPREstimator,
-    n_sampling_iters: int = 5,  # Number of sampling and fitting iterations
+    n_sampling_iters: int = 10,  # Number of sampling and fitting iterations
     sampling_size: int | None = 256,  # Number of exp sampled from buffer
     learning_rate: float = 2.5e-4,  # Learning rate for optimizer
     tf_n_fit_epochs: int = 1,  # Training epochs for tf .fit for each exp
