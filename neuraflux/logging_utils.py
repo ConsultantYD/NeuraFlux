@@ -66,6 +66,5 @@ class StructuredLogHandler(StreamHandler):
             add_dataframe_to_table(
                 log_df, self.conn, "execution_logs", index_col=LOG_TIMESTAMP_KEY
             )
-        except:
+        except Exception:
             print("Failed to add log to database.")
-            

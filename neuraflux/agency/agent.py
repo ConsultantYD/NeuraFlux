@@ -1,6 +1,5 @@
 import datetime as dt
 import json
-import logging as log
 import os
 from copy import copy
 
@@ -8,12 +7,10 @@ import numpy as np
 import pandas as pd
 
 from neuraflux.agency.control_module import ControlModule
-from neuraflux.agency.control_utils import softmax
 from neuraflux.agency.data_module import DataModule
 from neuraflux.agency.dqn import DDQNPREstimator
 from neuraflux.agency.products import AvailableProductsEnum
 from neuraflux.agency.replay_buffer import ReplayBuffer
-from neuraflux.agency.time_features import tf_all_cyclic
 from neuraflux.agency.utils_control import (
     convert_data_to_experience,
     convert_data_to_state,
@@ -41,31 +38,18 @@ from neuraflux.agency.utils_rl_training import simple_training_loop
 from neuraflux.global_variables import (
     CONTROL_KEY,
     DT_FILE_STR_FORMAT,
-    DT_STR_FORMAT,
-    LOG_ENTITY_KEY,
-    LOG_MESSAGE_KEY,
-    LOG_METHOD_KEY,
-    LOG_SIM_T_KEY,
     MS_AGENT_CONTROL_DATA_KEY,
     MS_AGENT_REAL_TRAINING_KEY,
     MS_AGENT_SIM_DATA_KEY,
     MS_AGENT_SIM_TRAINING_KEY,
     MS_ASSET_SIGNAL_DATA_KEY,
     MS_SHADOW_ASSET_SIGNAL_DATA_KEY,
-    TABLE_AGENT_DATA,
-    TABLE_CONTROLS,
-    TABLE_CONTROLS_SHADOW,
-    TABLE_SIGNALS,
-    TABLE_SIGNALS_SHADOW,
-    TABLE_VIRTUAL_DQN_TRAINING,
-    TABLE_WEATHER,
     TIMESTAMP_KEY,
 )
 from neuraflux.local_typing import AgentInMemoryStorageType, AssetType, UidType
-from neuraflux.schemas.agency import AgentConfig, SignalTags
-from neuraflux.schemas.control import DiscreteControl, PolicyEnum
+from neuraflux.schemas.agency import AgentConfig
+from neuraflux.schemas.control import DiscreteControl
 from neuraflux.time_ref import TimeInfo
-from neuraflux.weather import WeatherInfo
 
 
 class Agent:

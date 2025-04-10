@@ -1,13 +1,10 @@
 import datetime as dt
-import json
-import logging as log
 import os
 import random
 import shutil
 from copy import deepcopy
 
 import numpy as np
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf
 
 from neuraflux.agency.agent import Agent
@@ -83,7 +80,7 @@ class Simulation:
         # - AGENTS AND RELATED COMPONENTS
         # ---------------------------------------------------
         # Initialize agency modules
-        #self.control_module, self.data_module = self._initialize_modules(self.directory)
+        # self.control_module, self.data_module = self._initialize_modules(self.directory)
 
         # Initialize agents
         self.agents = self._initialize_agents(
@@ -95,7 +92,7 @@ class Simulation:
         )
 
         # Add new agents to modules
-        #for module in [self.control_module, self.data_module]:
+        # for module in [self.control_module, self.data_module]:
         #    for agent in self.agents.values():
         #        module.initialize_new_agent(
         #            uid=agent.get_uid(), agent_config=agent.get_config()

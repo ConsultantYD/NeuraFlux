@@ -23,15 +23,12 @@ from neuraflux.agency.rl_training import (
     simple_training_loop,
 )
 from neuraflux.global_variables import (
-    CONTROL_KEY,
-    DONE_KEY,
     FILE_REAL_REPLAY_BUFFER,
     FILE_SIM_REPLAY_BUFFER,
     LOG_ENTITY_KEY,
     LOG_MESSAGE_KEY,
     LOG_METHOD_KEY,
     LOG_SIM_T_KEY,
-    REWARD_KEY,
     TABLE_DQN_TRAINING,
 )
 from neuraflux.schemas.agency import RLConfig
