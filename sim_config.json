@@ -1,0 +1,164 @@
+{
+    "agents": {
+        "Agent001": {
+            "asset_metadata": {
+                "address": "123 Fake St, Anytown, CA",
+                "timezone": "America/Toronto",
+                "location": [
+                    43.7,
+                    -79.42,
+                    0.0
+                ],
+                "owner": "John Doe"
+            },
+            "control": {
+                "n_controllers": 1,
+                "rl_config": {
+                    "action_size": 3,
+                    "state_signals": [
+                        "internal_energy"
+                    ],
+                    "n_controllers": 1,
+                    "history_length": 3,
+                    "discount_factor": 1.0,
+                    "add_hourly_time_features_to_state": true,
+                    "add_daily_time_features_to_state": true,
+                    "add_weekly_time_features_to_state": false,
+                    "add_monthly_time_features_to_state": false
+                },
+                "real_learning_configs": {
+                    "0": {
+                        "enabled": false,
+                        "trigger_freq_cron": "0 0 */3 * *",
+                        "rl_training_config": {
+                            "target_update_period": 20,
+                            "n_fit_epochs": 10,
+                            "experience_sampling_size": 128,
+                            "learning_rate": 0.0005,
+                            "gradient_clip": 0.5,
+                            "n_target_iterators": 20,
+                            "n_sampling_iters": 10,
+                            "tf_batch_size": 32
+                        }
+                    },
+                    "259200": {
+                        "enabled": true,
+                        "trigger_freq_cron": "0 0 */3 * *",
+                        "rl_training_config": {
+                            "target_update_period": 20,
+                            "n_fit_epochs": 10,
+                            "experience_sampling_size": 128,
+                            "learning_rate": 0.0005,
+                            "gradient_clip": 0.5,
+                            "n_target_iterators": 20,
+                            "n_sampling_iters": 10,
+                            "tf_batch_size": 32
+                        }
+                    }
+                },
+                "real_replay_buffer_size": 10000,
+                "sim_learning_configs": {
+                    "0": {
+                        "enabled": false,
+                        "trigger_freq_cron": "55 23 */3 * *",
+                        "n_traj_per_sample": 1,
+                        "n_samplings": 10,
+                        "trajectory_len": 10,
+                        "rl_training_config": {
+                            "target_update_period": 20,
+                            "n_fit_epochs": 10,
+                            "experience_sampling_size": 128,
+                            "learning_rate": 0.0005,
+                            "gradient_clip": 0.5,
+                            "n_target_iterators": 20,
+                            "n_sampling_iters": 10,
+                            "tf_batch_size": 32
+                        }
+                    }
+                },
+                "sim_replay_buffer_size": 1000
+            },
+            "components_metadata": [],
+            "data": {
+                "control_power_mapping": {
+                    "0": -100.0,
+                    "1": 0.0,
+                    "2": 100.0
+                },
+                "tracked_signals": [
+                    "internal_energy",
+                    "oat"
+                ],
+                "signals_info": {
+                    "internal_energy": {
+                        "min_value": 0,
+                        "max_value": 100,
+                        "scalable": true,
+                        "source": "asset",
+                        "tags": [
+                            "X",
+                            "S"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    },
+                    "oat": {
+                        "min_value": -50,
+                        "max_value": 50,
+                        "scalable": true,
+                        "source": "asset",
+                        "tags": [
+                            "O"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    }
+                },
+                "memory_dump_freq_cron": "55 23 * * *"
+            },
+            "product": "PURE_DEMAND_RESPONSE",
+            "tariff": "ONTARIO_GEN_TOU"
+        }
+    },
+    "assets": {
+        "Agent001": {
+            "asset_type": "energy storage",
+            "core_variables": [
+                "timestamp",
+                "control",
+                "power",
+                "oat"
+            ],
+            "initial_state_dict": {
+                "internal_energy": 0
+            },
+            "n_controls": 1,
+            "capacity_kwh": 100.0,
+            "control_power_mapping": {
+                "0": -100.0,
+                "1": 0.0,
+                "2": 100.0
+            },
+            "efficiency_in": 1.0,
+            "efficiency_out": 1.0,
+            "decay_factor": 1.0,
+            "tracked_variables": [
+                "internal_energy"
+            ]
+        }
+    },
+    "directory": "simulations/simple_validation",
+    "geography": {
+        "city": "Toronto"
+    },
+    "seed": 42,
+    "time": {
+        "start_time": "2023-01-01T00:00:00",
+        "end_time": "2025-01-01T00:00:00",
+        "step_size_s": 300
+    }
+}

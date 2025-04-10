@@ -23,10 +23,10 @@ class DDQNPREstimator:
     state_size: int
     action_size: int
     sequence_len: int
-    n_rewards: int = 1
     n_controllers: int = 1
+    n_rewards: int = 1
     learning_rate: float = 2.5e-4
-    discount_factor: float = 0.99
+    discount_factor: float = 1.0
 
     def __post_init__(self) -> None:
         self.model = self._build_model()
@@ -226,6 +226,9 @@ class DDQNPREstimator:
         # Copy the states to avoid modifying the original
         states = states.copy()
 
+        # Convert dones to float
+        dones = dones.astype(float)
+
         # Calculate the necessary targets
         # was (batch_size, n_actions), is now [(batch_size, n_rewards, n_actions), ...]
         # where the len of the list is n_controllers)
@@ -271,7 +274,7 @@ class DDQNPREstimator:
             self.model.compile(
                 optimizer=tf.keras.optimizers.Adam(
                     learning_rate=learning_rate,
-                    clipnorm=1.0,
+                    clipnorm=0.5,
                 ),
                 loss="huber",
             )
@@ -403,7 +406,6 @@ class DDQNPREstimator:
 
         # Clean up the model directory.
         rmtree(MODEL_DIR)
-
 
     def _build_model(self) -> Model:
         # Clear the session to free up memory

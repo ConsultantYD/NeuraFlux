@@ -29,10 +29,11 @@ from neuraflux.global_variables import (
     TABLE_SIGNALS_SHADOW,
     TABLE_WEATHER,
 )
-from neuraflux.local_typing import (
-    IndexType,
-)
+from neuraflux.local_typing import IndexType, UidType
 from neuraflux.schemas.agency import AgentConfig, SignalInfo, SignalTags
+from neuraflux.utils_sql import (
+    add_dataframe_to_table,
+)
 
 
 class DataModule(Module):
@@ -45,19 +46,21 @@ class DataModule(Module):
         self.agent_signals_cache = {}
         self.agent_trajectory_columns_cache = {}
 
-    def initialize_new_agent_data_infrastructure(
-        self, uid: str, signal_info_dict: dict[str, SignalInfo]
-    ) -> None:
+    def initialize_new_agent(self, uid: UidType, agent_config: AgentConfig) -> None:
         """
-        Initialize the data infrastructure for a new agent.
+        Initializes a new agent by creating its database and tables.
 
-        Parameters:
-        -----------
-        uid : str
-            The unique identifier for the agent.
-        signal_info_dict : dict of SignalInfo
-            A dictionary containing details of signals of interest.
+        Args:
+            uid (str): The unique identifier for the agent.
+            agent_config (AgentConfig): The configuration for the agent.
         """
+
+        # Apply base class native method
+        super().initialize_new_agent(uid, agent_config)
+
+        # Add custom logic specific to DataModule
+        signal_info_dict = agent_config.data.signals_info
+
         # Create agent directory
         agent_dir = os.path.join(self.base_dir, uid)
         if not os.path.isdir(agent_dir):
@@ -275,6 +278,22 @@ class DataModule(Module):
                 return trajectories
             else:
                 return []
+
+    def store_agent_data_in_table(
+        self,
+        df: pd.DataFrame,
+        uid: str,
+        table_name: str,
+    ):
+        db_connection = self.create_connection_to_agent_db(uid)
+
+        df["uid"] = uid
+
+        # Store the signal data in the database
+        add_dataframe_to_table(df, db_connection, table_name)
+
+        # Delete unused variables and force garbage collection
+        del df
 
     def augment_dataframe_with_virtual_metering_data(
         self,

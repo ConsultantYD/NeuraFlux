@@ -222,13 +222,14 @@ class OntarioTOUTariff(Tariff):
             # Apply Ontario's TOU based on 24h
             if self.on_peak_range[1] > hour >= self.on_peak_range[0]:
                 price = self.on_peak * energy / 1000  #
-            if (
+            elif (
                 self.mid_peak_ranges[0][1] > hour >= self.mid_peak_ranges[0][0]
                 or self.mid_peak_ranges[1][1] > hour >= self.mid_peak_ranges[1][0]
             ):
                 price = self.mid_peak * energy / 1000
-            price = self.off_peak * energy / 1000
-
+            else:
+                price = self.off_peak * energy / 1000
+            
             # TODO: Add this as a parameter of the Tariff
             # Not paid injecting energy back on the grid
             # return max(price, 0)
