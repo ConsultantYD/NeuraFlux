@@ -76,7 +76,7 @@ if __name__ == "__main__":
     DATA_CONFIG = SimulationDataConfig(base_dir="Data Module")
     TIME_CONFIG = SimulationTimeConfig(
         start_time="2023-01-01T00:00:00",
-        end_time="2025-01-01T00:00:00",
+        end_time="2023-01-03T00:00:00",
         step_size_s=300,
     )
 

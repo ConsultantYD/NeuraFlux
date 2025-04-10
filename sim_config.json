@@ -41,7 +41,7 @@
                             "tf_batch_size": 32
                         }
                     },
-                    "259200": {
+                    "172800": {
                         "enabled": true,
                         "trigger_freq_cron": "0 0 */3 * *",
                         "rl_training_config": {
@@ -60,7 +60,7 @@
                 "sim_learning_configs": {
                     "0": {
                         "enabled": false,
-                        "trigger_freq_cron": "55 23 */3 * *",
+                        "trigger_freq_cron": "55 23 */2 * *",
                         "n_traj_per_sample": 1,
                         "n_samplings": 10,
                         "trajectory_len": 10,
@@ -151,6 +151,7 @@
             ]
         }
     },
+    "agent_save_freq_cron": "0 0 * * *",
     "directory": "simulations/simple_validation",
     "geography": {
         "city": "Toronto"
@@ -158,7 +159,7 @@
     "seed": 42,
     "time": {
         "start_time": "2023-01-01T00:00:00",
-        "end_time": "2025-01-01T00:00:00",
+        "end_time": "2023-01-03T00:00:00",
         "step_size_s": 300
     }
 }

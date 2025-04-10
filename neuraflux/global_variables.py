@@ -10,7 +10,6 @@ MS_AGENT_SIM_DATA_KEY = "agent_sim_data"
 MS_AGENT_REAL_TRAINING_KEY = "agent_real_training"
 MS_AGENT_SIM_TRAINING_KEY = "agent_sim_training"
 MS_ASSET_SIGNAL_DATA_KEY = "asset_signal_data"
-MS_SHADOW_ASSET_SIGNAL_DATA_KEY = "asset_shadow_signal_data"
 
 FILE_SCALING = "scaling_info"
 FILE_REAL_REPLAY_BUFFER = "real_replay_buffer"
