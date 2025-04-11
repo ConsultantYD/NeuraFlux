@@ -7,7 +7,6 @@ import pandas as pd
 from pandas.core.api import DataFrame as DataFrame
 
 from neuraflux.global_variables import (
-    CONTROL_KEY,
     DONE_KEY,
     ENERGY_KEY,
     REWARD_KEY,
@@ -64,41 +63,6 @@ class Product(metaclass=ABCMeta):
         return df
 
 
-class LoadMatcherValidatorProduct(Product):
-    def __init__(self, period: int = 2):
-        # Apply default class init
-        super().__init__(period)
-
-    def calculate_rewards(self, df) -> np.ndarray:
-        # Return positive if equal, negative otherwise
-        vec = np.abs(df["load"].values - df[CONTROL_KEY + "_1"].values)
-        vec = np.clip(vec, 0, 1)
-        vec = vec * -100 + 10
-        return vec.reshape(-1, 1)
-
-    def client_facing_name(self) -> str:
-        return "Optimization Validator"
-
-
-class SinglePoleBalancerValidatorProduct(Product):
-    def calculate_rewards(self, df) -> np.ndarray:
-        # Return a reward row-wise equal to the up_counter value
-        reward = df["up_counter"].values.reshape(-1, 1) / 10
-        # Put a negative reward the row before up_counter is 0
-        reward[np.where(df["up_counter"].values == 0)[0] - 1] = -50
-        return reward
-
-    def calculate_dones(self, df):
-        # Return done the row before up_counter is 0
-        done = np.zeros(df.shape[0])
-        done[np.where(df["up_counter"].values == 0)[0] - 1] = 1
-        df[DONE_KEY] = done.astype(bool)
-        return df
-
-    def client_facing_name(self) -> str:
-        return "Single Pole Balancer Validator"
-
-
 class SimpleTariffOptimizationProduct(Product):
     def calculate_rewards(self, df: pd.DataFrame) -> np.ndarray:
         df = df.copy()
@@ -106,6 +70,36 @@ class SimpleTariffOptimizationProduct(Product):
 
     def client_facing_name(self) -> str:
         return "Tariff Optimization"
+
+
+class HVACTariffAndComfortProduct(Product):
+    def calculate_rewards(self, df: pd.DataFrame) -> np.ndarray:
+        df = df.copy()
+
+        # Energy
+        energy_reward = -df[TARIFF_KEY].values
+        reward = energy_reward
+
+        # Comfort
+        temp_cols = [col for col in df.columns if "temperature_" in col]
+        sp_cool = df["cool_setpoint"].values
+        sp_heat = df["heat_setpoint"].values
+        for col in temp_cols:
+            # Calculate discomfort as the absolute deviation from
+            # cooling setpoint if warmer, or heating setpoint if colder
+            # 0 otherwise
+            reward += np.where(
+                df[col].values > sp_cool,
+                -np.square(sp_cool - df[col].values),
+                np.where(
+                    df[col].values < sp_heat, -np.square(sp_heat - df[col].values), 0
+                ),
+            )
+        df[REWARD_KEY] = reward
+        return df[[REWARD_KEY]].values
+
+    def client_facing_name(self):
+        return "HVAC Energy and Comfort Optimization"
 
 
 class DemandResponseProduct(Product):
@@ -472,8 +466,7 @@ class AvailableProductsEnum(Enum):
     HVAC_BUILDING = HVACBuildingProduct
     HOEP_MARKET = HOEPMarketProduct
     SIMPLE_TARIFF_OPT = SimpleTariffOptimizationProduct
-    LOAD_MATCHER_VALIDATOR = LoadMatcherValidatorProduct
-    SINGLE_POLE_BALANCER_VALIDATOR = SinglePoleBalancerValidatorProduct
+    HVAC_TARIFF_COMFORT = HVACTariffAndComfortProduct
 
     @classmethod
     def list_products(cls):

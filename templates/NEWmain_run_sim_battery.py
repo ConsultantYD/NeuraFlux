@@ -9,7 +9,7 @@ from neuraflux.schemas.agency import (
     RLConfig,
     SignalTags,
 )
-from neuraflux.schemas.asset_config import BuildingConfig
+from neuraflux.schemas.asset_config import EnergyStorageConfig
 from neuraflux.schemas.simulation import (
     SimulationConfig,
     SimulationDataConfig,
@@ -20,83 +20,35 @@ from neuraflux.simulation import Simulation
 
 if __name__ == "__main__":
     SIGNALS_INFO = {
-        "temperature_1": {
+        "internal_energy": {
             "tags": [SignalTags.STATE.value, SignalTags.RL_STATE.value],
             "temporal_knowledge": (None, 0),
-            "min_value": -50,
-            "max_value": 50,
-            "scalable": True,
-        },
-        "temperature_2": {
-            "tags": [SignalTags.STATE.value, SignalTags.RL_STATE.value],
-            "temporal_knowledge": (None, 0),
-            "min_value": -50,
-            "max_value": 50,
-            "scalable": True,
-        },
-        "temperature_3": {
-            "tags": [SignalTags.STATE.value, SignalTags.RL_STATE.value],
-            "temporal_knowledge": (None, 0),
-            "min_value": -50,
-            "max_value": 50,
+            "min_value": 0,
+            "max_value": 100,
             "scalable": True,
         },
         OAT_KEY: {
-            "tags": [SignalTags.EXOGENOUS.value, SignalTags.RL_STATE.value],
+            "tags": [SignalTags.OBSERVATION.value],
             "temporal_knowledge": (None, 0),
             "min_value": -50,
             "max_value": 50,
             "scalable": True,
         },
-        "hvac_1": {
-            "tags": [
-                SignalTags.CONTROL.value,
-            ]
-        },
-        "hvac_2": {
-            "tags": [
-                SignalTags.CONTROL.value,
-            ]
-        },
-        "hvac_3": {
-            "tags": [
-                SignalTags.CONTROL.value,
-            ]
-        },
-        "cool_setpoint": {
-            "tags": [
-                SignalTags.EXOGENOUS.value,
-                SignalTags.RL_STATE.value,
-            ]
-        },
-        "heat_setpoint": {
-            "tags": [
-                SignalTags.EXOGENOUS.value,
-                SignalTags.RL_STATE.value,
-            ]
-        },
-        "occupancy": {
-            "tags": [
-                SignalTags.EXOGENOUS.value,
-                SignalTags.RL_STATE.value,
-            ]
-        },
+    }
+    CONTROL_POWER_MAPPING = {0: -100, 1: 0, 2: 100}
+    INITIAL_STATE_DICT = {
+        "internal_energy": 0,
     }
 
-    CONTROL_POWER_MAPPING = {
-        0: 40,  # Cooling Stage 2
-        1: 20,  # Cooling Stage 1
-        2: 0,  # Control Off
-        3: 20,  # Heating Stage 1
-        4: 40,  # Heating Stage 2
-    }
-
-    ASSET_CONFIG = BuildingConfig()
+    ASSET_CONFIG = EnergyStorageConfig(
+        control_power_mapping=CONTROL_POWER_MAPPING,
+        capacity_kwh=100,
+        initial_state_dict=INITIAL_STATE_DICT,
+    )
 
     AGENT_CONTROL_CONFIG = AgentControlConfig(
-        n_controllers=3,
+        n_controllers=1,
         rl_config=RLConfig(
-            n_controllers=3,
             action_size=len(CONTROL_POWER_MAPPING),
             state_signals=[
                 k
@@ -117,14 +69,14 @@ if __name__ == "__main__":
         control=AGENT_CONTROL_CONFIG,
         data=AGENT_DATA_CONFIG,
         tariff="ONTARIO_GEN_TOU",
-        product="HVAC_TARIFF_COMFORT",
+        product="PURE_DEMAND_RESPONSE",
     )
 
     # Define the simulation configuration
     DATA_CONFIG = SimulationDataConfig(base_dir="Data Module")
     TIME_CONFIG = SimulationTimeConfig(
         start_time="2023-01-01T00:00:00",
-        end_time="2023-01-30T00:00:00",
+        end_time="2023-01-03T00:00:00",
         step_size_s=300,
     )
 

@@ -26,6 +26,7 @@ class SimulationDataConfig(BaseSchema):
 class SimulationConfig(BaseSchema):
     agents: dict[UidType, AgentConfig]
     assets: dict[UidType, object]
+    agent_save_freq_cron: str = "0 0 * * *"
     directory: str = "DefaultSimulation"
     geography: SimulationGeographicalConfig
     seed: int = 42

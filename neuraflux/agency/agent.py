@@ -2,6 +2,7 @@ import datetime as dt
 import json
 import os
 from copy import copy
+import dill
 
 import numpy as np
 import pandas as pd
@@ -43,7 +44,6 @@ from neuraflux.global_variables import (
     MS_AGENT_SIM_DATA_KEY,
     MS_AGENT_SIM_TRAINING_KEY,
     MS_ASSET_SIGNAL_DATA_KEY,
-    MS_SHADOW_ASSET_SIGNAL_DATA_KEY,
     TIMESTAMP_KEY,
 )
 from neuraflux.local_typing import AgentInMemoryStorageType, AssetType, UidType
@@ -60,7 +60,7 @@ class Agent:
 
     def __init__(
         self,
-        uid: UidType,
+        uid: UidType | None = None,
         config: AgentConfig | None = None,
         directory: str = "",
         data_module: DataModule | None = None,
@@ -78,6 +78,10 @@ class Agent:
             prediction_module (PredictionModule | None): Prediction module for forecasting. Defaults to None.
             time_info (TimeInfo | None): Time information for the simulation. Defaults to None.
         """
+        # Return directly if uid is None (used for loading from file)
+        if uid is None:
+            return
+
         # Update internal attributes
         self.uid = uid
         self.config = config
@@ -110,7 +114,6 @@ class Agent:
             MS_AGENT_REAL_TRAINING_KEY: [],
             MS_AGENT_SIM_TRAINING_KEY: [],
             MS_ASSET_SIGNAL_DATA_KEY: [],
-            MS_SHADOW_ASSET_SIGNAL_DATA_KEY: [],
         }
 
         # Create shortcuts, for convenience
@@ -135,17 +138,28 @@ class Agent:
         self.asset_data_collection()
 
         # 2. Define control and store it in memory
+        action_size = self.config.control.rl_config.action_size
+        n_controllers = self.config.control.n_controllers
         if self.control_ready:
             q_factors = self.get_q_factors(use_lite_inference=False)
             if np.random.rand() <= self.epsilon:
-                control = np.random.randint(3)
+                control = [
+                    int(np.random.randint(0, action_size)) for _ in range(n_controllers)
+                ]
             else:
-                control = int(np.argmax(q_factors[0][-1].flatten()))
+                control = [
+                    int(np.argmax(q_factors[c][-1].flatten()))
+                    for c in range(n_controllers)
+                ]
         else:
-            control = np.random.randint(3)
+            control = [
+                int(np.random.randint(0, action_size)) for _ in range(n_controllers)
+            ]
         self._push_data_dict_to_memory_storage(
             storage_key=MS_AGENT_CONTROL_DATA_KEY,
-            data_dict={CONTROL_KEY: control},
+            data_dict={
+                CONTROL_KEY + f"_{i+1}": control[i] for i in range(len(control))
+            },
             timestamp=self.time_info.t,
         )
 
@@ -164,17 +178,17 @@ class Agent:
         )
         rl_train_freq = real_lr_config.trigger_freq_cron
         if real_lr_config.enabled and cron_matches(self.time_info.t, rl_train_freq):
-            reward = self.get_data(start_time=self.time_info.t - dt.timedelta(days=2))[
+            reward = self.get_data(start_time=self.time_info.t - dt.timedelta(days=1))[
                 "reward"
             ].sum()
             print(
-                f"Reward in the last 2 days (eps = {self.epsilon}): {round(reward, 2)}"
+                f"Reward in the last 1 day (eps = {self.epsilon}): {round(reward, 2)}"
             )
 
             self.rl_training()
             self.epsilon = np.clip(round(self.epsilon - 0.1, 2), 0.0, 1.0)
             self.control_ready = True
-        return [DiscreteControl(control)]
+        return [DiscreteControl(c) for c in control]
 
     def asset_data_collection(self):
         """
@@ -192,22 +206,6 @@ class Agent:
             data_dict=asset_signals_dict,
             timestamp=self.time_info.t,
         )
-
-        # Shadow asset data collection
-        if self.shadow_asset is not None:
-            shadow_signals_dict = collect_signals_from_asset(
-                asset=self.shadow_asset, tracked_signals=tracked_signals
-            )
-            # Add prefix to shadow signals
-            new_shadow_signals_dict = {
-                f"shadow_{key}": value for key, value in shadow_signals_dict.items()
-            }
-            # Store in memory, with associated timestamp
-            self._push_data_dict_to_memory_storage(
-                storage_key=MS_SHADOW_ASSET_SIGNAL_DATA_KEY,
-                data_dict=new_shadow_signals_dict,
-                timestamp=self.time_info.t,
-            )
 
     def assign_to_asset(
         self, asset: AssetType, shadow_asset: AssetType | None = None
@@ -236,23 +234,21 @@ class Agent:
     @classmethod
     def from_dir(cls, agent_dir: str) -> None:
         """
-        Load an agent located in a simulation directory.
+        Load an agent from a directory.
         Args:
-            agent_dir (str): The path to the agent's files.
+            agent_dir (str): The directory to load the agent from.
         Returns:
             Agent: The loaded agent.
         """
-        # Load the agent configuration
-        config_path = os.path.join(agent_dir, "config.json")
-        with open(config_path, "r") as f:
-            config_json = json.load(f)
-            config = AgentConfig.model_validate(config_json)
-
-        # Create the agent
-        return cls(
-            uid=config.asset_metadata["address"],
-            config=config,
-            directory=agent_dir,
+        pickle_path = os.path.join(agent_dir, "agent.pkl")
+        if os.path.exists(pickle_path):
+            with open(pickle_path, "rb") as f:
+                internal_dict = dill.load(f)
+            agent = cls()
+            agent.__dict__.update(internal_dict)
+            return agent
+        raise ValueError(
+            f"Agent not found in directory {agent_dir}. Please check the path."
         )
 
     def get_config(self) -> AgentConfig:
@@ -468,7 +464,7 @@ class Agent:
 
     def get_q_factors(
         self, df: pd.DataFrame | None = None, use_lite_inference: bool = True
-    ) -> np.ndarray:
+    ) -> list[np.ndarray]:
         """
         Get the Q factors for the agent.
         Args:
@@ -665,6 +661,17 @@ class Agent:
         )
 
         del buffer, q_estimator, estimator_metadata, history
+
+    def to_file(self, directory: str = "") -> None:
+        """
+        Save the agent's state to a file using dill.
+        Args:
+            directory (str): The directory to save the file in.
+        """
+        filepath = os.path.join(directory, "agent.pkl")
+        internal_dict = vars(self)
+        with open(filepath, "wb") as f:
+            dill.dump(internal_dict, f)
 
     def update_time_info(self, time_info: TimeInfo) -> None:
         """

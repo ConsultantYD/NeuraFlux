@@ -22,6 +22,7 @@ from neuraflux.schemas.agency import AgentConfig
 from neuraflux.schemas.simulation import SimulationConfig
 from neuraflux.time_ref import TimeRef
 from neuraflux.weather import Weather
+from neuraflux.agency.utils_data import cron_matches
 
 
 class Simulation:
@@ -79,9 +80,6 @@ class Simulation:
         # ---------------------------------------------------
         # - AGENTS AND RELATED COMPONENTS
         # ---------------------------------------------------
-        # Initialize agency modules
-        # self.control_module, self.data_module = self._initialize_modules(self.directory)
-
         # Initialize agents
         self.agents = self._initialize_agents(
             agent_configs_dict=self.config.agents,
@@ -90,13 +88,6 @@ class Simulation:
             assets=self.assets,
             shadow_assets=self.shadow_assets,
         )
-
-        # Add new agents to modules
-        # for module in [self.control_module, self.data_module]:
-        #    for agent in self.agents.values():
-        #        module.initialize_new_agent(
-        #            uid=agent.get_uid(), agent_config=agent.get_config()
-        #        )
 
     def run(self) -> None:
         # Save simulation summary before starting
@@ -156,10 +147,23 @@ class Simulation:
                 for c in range(len(shadow_control)):
                     control_key = CONTROL_KEY + "_" + str(c + 1)
                     shadow_control_dict[control_key] = shadow_control[c].value
-                # agent._push_control_data_to_db(
-                #    shadow_control_dict, self.time_info.t, shadow_asset=True
-                # )
                 shadow_asset.step(shadow_control, self.t, self.oat)
+
+            # Save agent's full data to disk when requested
+            if cron_matches(
+                self.time_info.t,
+                self.config.agent_save_freq_cron,
+            ):
+                # Save agents' data to disk
+                for uid, agent in self.agents.items():
+                    agent_directory = os.path.join(
+                        self.directory,
+                        uid,
+                    )
+                    agent.to_file(directory=agent_directory)
+
+        for uid, agent in self.agents.items():
+            print(agent.get_data())
 
     def _fix_seeds(self, seed_value: int) -> None:
         """
