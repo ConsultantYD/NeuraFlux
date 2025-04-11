@@ -37,6 +37,8 @@ if "agent" in ss:
 
     df = ss.df
 
+    st.write(df)
+
     green_colorscale = [
         [0, "rgba(255, 255, 255, 0.1)"],  # White
         [1, "rgba(11, 145, 0, 0.5)"],  # Green

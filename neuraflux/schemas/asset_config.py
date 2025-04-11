@@ -22,16 +22,7 @@ class AssetConfig(BaseSchema):
     n_controls: int = 1
 
 
-# LOAD MATCHER VALIDATOR
-class LoadMatcherConfig(AssetConfig):
-    asset_type: str = "load matcher (validator)"
-    control_power_mapping: dict[int, float] = {i: i for i in range(5)}
-    initial_state_dict: dict[str, Any] = {"load": 2}
-    tracked_variables: list[str] = ["load"]
-    n_controls: int = 1
-
-
-# ENERGY STORAGE 
+# ENERGY STORAGE
 class EnergyStorageConfig(AssetConfig):
     asset_type: str = "energy storage"
     capacity_kwh: float = 500.0
@@ -45,6 +36,8 @@ class EnergyStorageConfig(AssetConfig):
 # BUILDING ASSET
 class BuildingConfig(AssetConfig):
     asset_type: str = "commercial building"
+    dt: int = 5
+    n_controls: int = 3
     control_power_mapping: dict[int, float] = {
         0: 40,  # Cooling Stage 2
         1: 20,  # Cooling Stage 1
@@ -59,12 +52,10 @@ class BuildingConfig(AssetConfig):
         "heat_setpoint",
         "occupancy",
     ]
-    n_controls: int = 3
     initial_state_dict: dict[str, Any] = {
         "temperature": [21.0, 21.0, 21.0],
         "hvac": [0, 0, 0],
     }
-    dt: int = 5
     occ_times: tuple[int, int] = (8, 18)
     occ_setpoints: tuple[float, float] = (20.0, 22.0)
     unocc_setpoints: tuple[float, float] = (16.0, 26.0)

@@ -12,13 +12,19 @@
                 "owner": "John Doe"
             },
             "control": {
-                "n_controllers": 1,
+                "n_controllers": 3,
                 "rl_config": {
-                    "action_size": 3,
+                    "action_size": 5,
                     "state_signals": [
-                        "internal_energy"
+                        "temperature_1",
+                        "temperature_2",
+                        "temperature_3",
+                        "oat",
+                        "cool_setpoint",
+                        "heat_setpoint",
+                        "occupancy"
                     ],
-                    "n_controllers": 1,
+                    "n_controllers": 3,
                     "history_length": 3,
                     "discount_factor": 1.0,
                     "add_hourly_time_features_to_state": true,
@@ -29,7 +35,7 @@
                 "real_learning_configs": {
                     "0": {
                         "enabled": false,
-                        "trigger_freq_cron": "0 0 */3 * *",
+                        "trigger_freq_cron": "0 0 * * *",
                         "rl_training_config": {
                             "target_update_period": 20,
                             "n_fit_epochs": 10,
@@ -41,9 +47,9 @@
                             "tf_batch_size": 32
                         }
                     },
-                    "172800": {
+                    "86400": {
                         "enabled": true,
-                        "trigger_freq_cron": "0 0 */3 * *",
+                        "trigger_freq_cron": "0 0 * * *",
                         "rl_training_config": {
                             "target_update_period": 20,
                             "n_fit_epochs": 10,
@@ -81,18 +87,56 @@
             "components_metadata": [],
             "data": {
                 "control_power_mapping": {
-                    "0": -100.0,
-                    "1": 0.0,
-                    "2": 100.0
+                    "0": 40.0,
+                    "1": 20.0,
+                    "2": 0.0,
+                    "3": 20.0,
+                    "4": 40.0
                 },
                 "tracked_signals": [
-                    "internal_energy",
-                    "oat"
+                    "temperature_1",
+                    "temperature_2",
+                    "temperature_3",
+                    "oat",
+                    "hvac_1",
+                    "hvac_2",
+                    "hvac_3",
+                    "cool_setpoint",
+                    "heat_setpoint",
+                    "occupancy"
                 ],
                 "signals_info": {
-                    "internal_energy": {
-                        "min_value": 0,
-                        "max_value": 100,
+                    "temperature_1": {
+                        "min_value": -50,
+                        "max_value": 50,
+                        "scalable": true,
+                        "source": "asset",
+                        "tags": [
+                            "X",
+                            "S"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    },
+                    "temperature_2": {
+                        "min_value": -50,
+                        "max_value": 50,
+                        "scalable": true,
+                        "source": "asset",
+                        "tags": [
+                            "X",
+                            "S"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    },
+                    "temperature_3": {
+                        "min_value": -50,
+                        "max_value": 50,
                         "scalable": true,
                         "source": "asset",
                         "tags": [
@@ -110,7 +154,89 @@
                         "scalable": true,
                         "source": "asset",
                         "tags": [
-                            "O"
+                            "W",
+                            "S"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    },
+                    "hvac_1": {
+                        "min_value": null,
+                        "max_value": null,
+                        "scalable": false,
+                        "source": "asset",
+                        "tags": [
+                            "U"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    },
+                    "hvac_2": {
+                        "min_value": null,
+                        "max_value": null,
+                        "scalable": false,
+                        "source": "asset",
+                        "tags": [
+                            "U"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    },
+                    "hvac_3": {
+                        "min_value": null,
+                        "max_value": null,
+                        "scalable": false,
+                        "source": "asset",
+                        "tags": [
+                            "U"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    },
+                    "cool_setpoint": {
+                        "min_value": null,
+                        "max_value": null,
+                        "scalable": false,
+                        "source": "asset",
+                        "tags": [
+                            "W",
+                            "S"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    },
+                    "heat_setpoint": {
+                        "min_value": null,
+                        "max_value": null,
+                        "scalable": false,
+                        "source": "asset",
+                        "tags": [
+                            "W",
+                            "S"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    },
+                    "occupancy": {
+                        "min_value": null,
+                        "max_value": null,
+                        "scalable": false,
+                        "source": "asset",
+                        "tags": [
+                            "W",
+                            "S"
                         ],
                         "temporal_knowledge": [
                             null,
@@ -120,13 +246,13 @@
                 },
                 "memory_dump_freq_cron": "55 23 * * *"
             },
-            "product": "PURE_DEMAND_RESPONSE",
+            "product": "HVAC_TARIFF_COMFORT",
             "tariff": "ONTARIO_GEN_TOU"
         }
     },
     "assets": {
         "Agent001": {
-            "asset_type": "energy storage",
+            "asset_type": "commercial building",
             "core_variables": [
                 "timestamp",
                 "control",
@@ -134,20 +260,44 @@
                 "oat"
             ],
             "initial_state_dict": {
-                "internal_energy": 0
+                "temperature": [
+                    21.0,
+                    21.0,
+                    21.0
+                ],
+                "hvac": [
+                    0,
+                    0,
+                    0
+                ]
             },
-            "n_controls": 1,
-            "capacity_kwh": 100.0,
+            "n_controls": 3,
+            "dt": 5,
             "control_power_mapping": {
-                "0": -100.0,
-                "1": 0.0,
-                "2": 100.0
+                "0": 40,
+                "1": 20,
+                "2": 0,
+                "3": 20,
+                "4": 40
             },
-            "efficiency_in": 1.0,
-            "efficiency_out": 1.0,
-            "decay_factor": 1.0,
             "tracked_variables": [
-                "internal_energy"
+                "temperature",
+                "hvac",
+                "cool_setpoint",
+                "heat_setpoint",
+                "occupancy"
+            ],
+            "occ_times": [
+                8,
+                18
+            ],
+            "occ_setpoints": [
+                20.0,
+                22.0
+            ],
+            "unocc_setpoints": [
+                16.0,
+                26.0
             ]
         }
     },
@@ -159,7 +309,7 @@
     "seed": 42,
     "time": {
         "start_time": "2023-01-01T00:00:00",
-        "end_time": "2023-01-03T00:00:00",
+        "end_time": "2023-01-30T00:00:00",
         "step_size_s": 300
     }
 }

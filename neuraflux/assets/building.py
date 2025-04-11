@@ -6,10 +6,13 @@ from numpy.typing import NDArray
 
 from neuraflux.assets.base_asset import Asset
 from neuraflux.schemas.asset_config import BuildingConfig
-from neuraflux.schemas.control import ContinuousControl, DiscreteControl
+from neuraflux.schemas.control import DiscreteControl
 
 
 class Building(Asset):
+    CONFIG_CLASS = BuildingConfig
+    NAME = "commercial building"
+
     def __init__(
         self,
         name: str,
@@ -17,8 +20,8 @@ class Building(Asset):
         timestamp: dt.datetime,
         outside_air_temperature: float,
     ):
-        dt = config.dt
         self.config = config
+        dt = self.config.dt
 
         self.Uinv, self.F, self.C = get_simulation_properties_for_building(dt)
 
@@ -36,6 +39,15 @@ class Building(Asset):
     ) -> float:
         # Store outside air temperature for this step
         self.outside_air_temperature = outside_air_temperature
+
+        # TODO: Implement in Agent
+        # TEMPORARY: fallback to auto control in individual zones if discomfort too big
+        def_control = self.get_auto_control(timestamp, outside_air_temperature)
+        for i in range(len(control)):
+            if self.temperature[i] > self.cool_setpoint + 1.0:
+                control[i] = def_control[i]
+            elif self.temperature[i] < self.heat_setpoint - 1.0:
+                control[i] = def_control[i]
 
         # Define the new state of the HVAC system based on controls
         self.hvac = [c.value - 2 for c in control]
@@ -70,27 +82,27 @@ class Building(Asset):
             if temp > setpoints[1]:
                 # Keep stage 2 on if it was already on
                 if hvac == -2:
-                    control.append(ContinuousControl(0))
+                    control.append(DiscreteControl(0))
                 # Stage 2 cooling if gap is bigger than 1 degree
                 elif temp - setpoints[1] > 1:
-                    control.append(ContinuousControl(0))
+                    control.append(DiscreteControl(0))
                 # Stage 1 cooling otherwise
                 else:
-                    control.append(ContinuousControl(1))
+                    control.append(DiscreteControl(1))
             # If temperature is too cold ...
             elif temp < setpoints[0]:
                 # Keep stage 2 on if it was already on
                 if hvac == 2:
-                    control.append(ContinuousControl(4))
+                    control.append(DiscreteControl(4))
                 # Stage 2 heating if gap is bigger than 1 degree
                 elif setpoints[0] - temp > 1:
-                    control.append(ContinuousControl(4))
+                    control.append(DiscreteControl(4))
                 # Stage 1 heating otherwise
                 else:
-                    control.append(ContinuousControl(3))
+                    control.append(DiscreteControl(3))
             # If temperature is within setpoints ...
             else:
-                control.append(ContinuousControl(2))
+                control.append(DiscreteControl(2))
         return control
 
     def augment_df(self, df) -> pd.DataFrame:

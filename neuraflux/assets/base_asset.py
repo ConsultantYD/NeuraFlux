@@ -72,6 +72,12 @@ class Asset(metaclass=RequiredClassVarsMeta):
             setattr(self, key, value)
         self._update_tracked_variables()
 
+        # Convert array-like signals to individual variables
+        for var in self.config.tracked_variables:
+            if isinstance(getattr(self, var), (list, tuple, np.ndarray)):
+                for i in range(len(getattr(self, var))):
+                    setattr(self, var + f"_{i+1}", getattr(self, var)[i])
+
         # Logging
         asset_class = self.__class__.__name__
         log.debug(
@@ -172,7 +178,8 @@ class Asset(metaclass=RequiredClassVarsMeta):
     def get_signal(self, signal: str) -> Any:
         if hasattr(self, signal):
             return getattr(self, signal)
-
+        for k, v in self.__dict__.items():
+            print(f"{k}: {v}")
         return np.nan
 
     def get_historical_data(self, nan_padding: bool = False) -> pd.DataFrame:

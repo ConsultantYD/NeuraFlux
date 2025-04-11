@@ -138,17 +138,28 @@ class Agent:
         self.asset_data_collection()
 
         # 2. Define control and store it in memory
+        action_size = self.config.control.rl_config.action_size
+        n_controllers = self.config.control.n_controllers
         if self.control_ready:
             q_factors = self.get_q_factors(use_lite_inference=False)
             if np.random.rand() <= self.epsilon:
-                control = np.random.randint(3)
+                control = [
+                    int(np.random.randint(0, action_size)) for _ in range(n_controllers)
+                ]
             else:
-                control = int(np.argmax(q_factors[0][-1].flatten()))
+                control = [
+                    int(np.argmax(q_factors[c][-1].flatten()))
+                    for c in range(n_controllers)
+                ]
         else:
-            control = np.random.randint(3)
+            control = [
+                int(np.random.randint(0, action_size)) for _ in range(n_controllers)
+            ]
         self._push_data_dict_to_memory_storage(
             storage_key=MS_AGENT_CONTROL_DATA_KEY,
-            data_dict={CONTROL_KEY: control},
+            data_dict={
+                CONTROL_KEY + f"_{i+1}": control[i] for i in range(len(control))
+            },
             timestamp=self.time_info.t,
         )
 
@@ -167,17 +178,17 @@ class Agent:
         )
         rl_train_freq = real_lr_config.trigger_freq_cron
         if real_lr_config.enabled and cron_matches(self.time_info.t, rl_train_freq):
-            reward = self.get_data(start_time=self.time_info.t - dt.timedelta(days=2))[
+            reward = self.get_data(start_time=self.time_info.t - dt.timedelta(days=1))[
                 "reward"
             ].sum()
             print(
-                f"Reward in the last 2 days (eps = {self.epsilon}): {round(reward, 2)}"
+                f"Reward in the last 1 day (eps = {self.epsilon}): {round(reward, 2)}"
             )
 
             self.rl_training()
             self.epsilon = np.clip(round(self.epsilon - 0.1, 2), 0.0, 1.0)
             self.control_ready = True
-        return [DiscreteControl(control)]
+        return [DiscreteControl(c) for c in control]
 
     def asset_data_collection(self):
         """
@@ -453,7 +464,7 @@ class Agent:
 
     def get_q_factors(
         self, df: pd.DataFrame | None = None, use_lite_inference: bool = True
-    ) -> np.ndarray:
+    ) -> list[np.ndarray]:
         """
         Get the Q factors for the agent.
         Args:

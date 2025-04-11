@@ -359,6 +359,8 @@ class DDQNPREstimator:
             internal_variables["state_size"],
             internal_variables["action_size"],
             internal_variables["sequence_len"],
+            internal_variables["n_controllers"],
+            internal_variables["n_rewards"],
         )
         self.__dict__.update(internal_variables)
         self.model = tf.keras.models.load_model(model_file)

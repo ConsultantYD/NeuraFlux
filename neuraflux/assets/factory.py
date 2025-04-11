@@ -1,13 +1,13 @@
 from enum import Enum, unique
 
 from neuraflux.assets.energy_storage import EnergyStorage
+from neuraflux.assets.building import Building
 
 
 @unique
 class AvailableAssetsEnum(Enum):
     ENERGY_STORAGE = EnergyStorage
-    # GENERIC: str = "generic"
-    # COMMERCIAL_BUILDING: str = "commercial building"
+    COMMERCIAL_BUILDING = Building
     # ELECTRIC_VEHICLE: str = "electric vehicle"
     # EV_CHARGER: str = "electric vehicle charger"
     # RESIDENTIAL_BUILDING: str = "residential building"

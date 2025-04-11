@@ -162,6 +162,9 @@ class Simulation:
                     )
                     agent.to_file(directory=agent_directory)
 
+        for uid, agent in self.agents.items():
+            print(agent.get_data())
+
     def _fix_seeds(self, seed_value: int) -> None:
         """
         Fixes the random seed for reproducibility. Covers numpy, random, and TensorFlow.

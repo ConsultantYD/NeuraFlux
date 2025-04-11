@@ -4,7 +4,7 @@ import shutil
 
 import dill
 
-from neuraflux.agency.ddqn import DDQNPREstimator
+from neuraflux.agency.dqn import DDQNPREstimator
 from neuraflux.agency.replay_buffer import ReplayBuffer
 from neuraflux.global_variables import METADATA_FILE_KEY, REPLAY_BUFFERS_FILENAME
 
