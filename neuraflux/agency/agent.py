@@ -50,8 +50,6 @@ from neuraflux.local_typing import AgentInMemoryStorageType, AssetType, UidType
 from neuraflux.schemas.agency import (
     AgentConfig,
     RealLearningConfig,
-    RLConfig,
-    SimLearningConfig,
     ControlSelectionConfig,
 )
 from neuraflux.schemas.control import DiscreteControl
