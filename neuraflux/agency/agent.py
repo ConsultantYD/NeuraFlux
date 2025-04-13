@@ -47,7 +47,13 @@ from neuraflux.global_variables import (
     TIMESTAMP_KEY,
 )
 from neuraflux.local_typing import AgentInMemoryStorageType, AssetType, UidType
-from neuraflux.schemas.agency import AgentConfig
+from neuraflux.schemas.agency import (
+    AgentConfig,
+    RealLearningConfig,
+    RLConfig,
+    SimLearningConfig,
+    ControlSelectionConfig,
+)
 from neuraflux.schemas.control import DiscreteControl
 from neuraflux.time_ref import TimeInfo
 
@@ -129,6 +135,41 @@ class Agent:
         """
         return self.run(*args, **kwargs)
 
+    def get_control(
+        self, control_selection_config: ControlSelectionConfig
+    ) -> list[int]:
+        """
+        Get the control for the agent based on the control selection configuration.
+        Args:
+            control_selection_config (ControlSelectionConfig): The control selection configuration.
+        Returns:
+            list[DiscreteControl]: The control for the agent.
+        """
+        policy = control_selection_config.policy
+        policy_kwargs = control_selection_config.policy_kwargs
+        action_size = self.config.control.rl_config.action_size
+        n_controllers = self.config.control.n_controllers
+        if policy == "q_policy":
+            q_factors = self.get_q_factors(use_lite_inference=False)
+            if np.random.rand() <= policy_kwargs["epsilon"]:
+                control = [
+                    int(np.random.randint(0, action_size)) for _ in range(n_controllers)
+                ]
+            else:
+                control = [
+                    int(np.argmax(q_factors[c][-1].flatten()))
+                    for c in range(n_controllers)
+                ]
+        elif policy == "random_policy":
+            control = [
+                int(np.random.randint(0, action_size)) for _ in range(n_controllers)
+            ]
+        else:
+            raise ValueError(
+                f"Unknown policy {policy}. Please check the configuration."
+            )
+        return control
+
     def run(self) -> list[DiscreteControl] | None:
         """
         Run the agent for a given time step.
@@ -138,27 +179,17 @@ class Agent:
         self.asset_data_collection()
 
         # 2. Define control and store it in memory
-        action_size = self.config.control.rl_config.action_size
-        n_controllers = self.config.control.n_controllers
-        if self.control_ready:
-            q_factors = self.get_q_factors(use_lite_inference=False)
-            if np.random.rand() <= self.epsilon:
-                control = [
-                    int(np.random.randint(0, action_size)) for _ in range(n_controllers)
-                ]
-            else:
-                control = [
-                    int(np.argmax(q_factors[c][-1].flatten()))
-                    for c in range(n_controllers)
-                ]
-        else:
-            control = [
-                int(np.random.randint(0, action_size)) for _ in range(n_controllers)
-            ]
+        control_selection_config: ControlSelectionConfig = (
+            get_active_config_based_on_duration(
+                duration_s=self.get_elapsed_time(),
+                config_dict=self.config.control.control_selection,
+            )
+        )
+        controls = self.get_control(control_selection_config)
         self._push_data_dict_to_memory_storage(
             storage_key=MS_AGENT_CONTROL_DATA_KEY,
             data_dict={
-                CONTROL_KEY + f"_{i+1}": control[i] for i in range(len(control))
+                CONTROL_KEY + f"_{i+1}": controls[i] for i in range(len(controls))
             },
             timestamp=self.time_info.t,
         )
@@ -172,7 +203,7 @@ class Agent:
         # 4 TODO: Train using simulated data
 
         # 5. Train using real data
-        real_lr_config = get_active_config_based_on_duration(
+        real_lr_config: RealLearningConfig = get_active_config_based_on_duration(
             duration_s=self.get_elapsed_time(),
             config_dict=self.config.control.real_learning_configs,
         )
@@ -181,14 +212,12 @@ class Agent:
             reward = self.get_data(start_time=self.time_info.t - dt.timedelta(days=1))[
                 "reward"
             ].sum()
-            print(
-                f"Reward in the last 1 day (eps = {self.epsilon}): {round(reward, 2)}"
-            )
-
+            epsilon = 1.0
+            if "epsilon" in control_selection_config.policy_kwargs:
+                epsilon = control_selection_config.policy_kwargs["epsilon"]
+            print(f"Reward in the last 1 day (eps = {epsilon}): {round(reward, 2)}")
             self.rl_training()
-            self.epsilon = np.clip(round(self.epsilon - 0.1, 2), 0.0, 1.0)
-            self.control_ready = True
-        return [DiscreteControl(c) for c in control]
+        return [DiscreteControl(c) for c in controls]
 
     def asset_data_collection(self):
         """
@@ -632,7 +661,7 @@ class Agent:
         q_estimator, _ = self.get_q_estimator(registry_dir=self.dqn_registry_dir)
 
         # Training loop
-        for _ in range(20):
+        for _ in range(30):
             q_estimator, buffer, _ = simple_training_loop(
                 replay_buffer=buffer,
                 q_estimator=q_estimator,

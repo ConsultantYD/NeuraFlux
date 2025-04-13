@@ -13,6 +13,153 @@
             },
             "control": {
                 "n_controllers": 3,
+                "control_selection": {
+                    "0": {
+                        "enabled": true,
+                        "policy": "random_policy",
+                        "policy_kwargs": {}
+                    },
+                    "86700": {
+                        "enabled": true,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.95
+                        }
+                    },
+                    "173100": {
+                        "enabled": true,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.9
+                        }
+                    },
+                    "259500": {
+                        "enabled": true,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.85
+                        }
+                    },
+                    "345900": {
+                        "enabled": true,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.8
+                        }
+                    },
+                    "432300": {
+                        "enabled": true,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.75
+                        }
+                    },
+                    "518700": {
+                        "enabled": true,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.7
+                        }
+                    },
+                    "605100": {
+                        "enabled": true,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.6499999999999999
+                        }
+                    },
+                    "691500": {
+                        "enabled": true,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.6
+                        }
+                    },
+                    "777900": {
+                        "enabled": true,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.55
+                        }
+                    },
+                    "864300": {
+                        "enabled": true,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.5
+                        }
+                    },
+                    "950700": {
+                        "enabled": true,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.44999999999999996
+                        }
+                    },
+                    "1037100": {
+                        "enabled": true,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.3999999999999999
+                        }
+                    },
+                    "1123500": {
+                        "enabled": true,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.35
+                        }
+                    },
+                    "1209900": {
+                        "enabled": true,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.29999999999999993
+                        }
+                    },
+                    "1296300": {
+                        "enabled": true,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.25
+                        }
+                    },
+                    "1382700": {
+                        "enabled": true,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.19999999999999996
+                        }
+                    },
+                    "1469100": {
+                        "enabled": true,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.1499999999999999
+                        }
+                    },
+                    "1555500": {
+                        "enabled": true,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.09999999999999998
+                        }
+                    },
+                    "1641900": {
+                        "enabled": true,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.04999999999999993
+                        }
+                    },
+                    "1728300": {
+                        "enabled": true,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.0
+                        }
+                    }
+                },
                 "rl_config": {
                     "action_size": 5,
                     "state_signals": [

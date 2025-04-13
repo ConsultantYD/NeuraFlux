@@ -44,9 +44,9 @@ class Building(Asset):
         # TEMPORARY: fallback to auto control in individual zones if discomfort too big
         def_control = self.get_auto_control(timestamp, outside_air_temperature)
         for i in range(len(control)):
-            if self.temperature[i] > self.cool_setpoint + 1.0:
+            if self.temperature[i] > self.cool_setpoint + 0.5:
                 control[i] = def_control[i]
-            elif self.temperature[i] < self.heat_setpoint - 1.0:
+            elif self.temperature[i] < self.heat_setpoint - 0.5:
                 control[i] = def_control[i]
 
         # Define the new state of the HVAC system based on controls

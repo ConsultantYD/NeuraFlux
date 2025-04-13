@@ -9,9 +9,9 @@ def simple_training_loop(
     q_estimator: DDQNPREstimator,
     n_sampling_iters: int = 10,  # Number of sampling and fitting iterations
     sampling_size: int | None = 256,  # Number of exp sampled from buffer
-    learning_rate: float = 2.5e-4,  # Learning rate for optimizer
+    learning_rate: float = 1e-3,  # Learning rate for optimizer
     tf_n_fit_epochs: int = 1,  # Training epochs for tf .fit for each exp
-    tf_batch_size: int = 32,  # Batch size for tf .fit
+    tf_batch_size: int = 16,  # Batch size for tf .fit
 ) -> tuple[DDQNPREstimator, ReplayBuffer, list[float], list[float]]:
     # Get total number of experiences in the replay buffer
     rb_len = len(replay_buffer)

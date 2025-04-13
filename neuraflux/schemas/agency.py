@@ -1,7 +1,8 @@
 from enum import Enum, unique
-from typing import Any
+from typing import Any, Literal
 
 from .base import BaseSchema
+from pydantic import Field
 
 
 # ----------------------------------------------------------------------------
@@ -94,15 +95,34 @@ class SignalInfo(BaseSchema):
     temporal_knowledge: tuple = (None, 0)
 
 
+class ControlSelectionConfig(BaseSchema):
+    enabled: bool = True
+    policy: Literal["random_policy", "q_policy"] = "random_policy"
+    policy_kwargs: dict[str, object] = {}
+
+
 class AgentControlConfig(BaseSchema):
     n_controllers: int
+    control_selection: dict[int, ControlSelectionConfig] = Field(
+        default_factory=lambda: {0: ControlSelectionConfig()}
+        | {
+            60 * 60 * 24 * i + (60 * 5): ControlSelectionConfig(
+                policy="q_policy", policy_kwargs={"epsilon": 1 - (0.05 * i)}
+            )
+            for i in range(1, 21)
+        }
+    )
     rl_config: RLConfig
-    real_learning_configs: dict[int, RealLearningConfig] = {
-        0: RealLearningConfig(enabled=False),
-        60 * 60 * 24 * 1: RealLearningConfig(),
-    }
+    real_learning_configs: dict[int, RealLearningConfig] = Field(
+        default_factory=lambda: {
+            0: RealLearningConfig(enabled=False),
+            60 * 60 * 24 * 1: RealLearningConfig(),
+        }
+    )
     real_replay_buffer_size: int = 10000
-    sim_learning_configs: dict[int, SimLearningConfig] = {0: SimLearningConfig()}
+    sim_learning_configs: dict[int, SimLearningConfig] = Field(
+        default_factory=lambda: {0: SimLearningConfig()}
+    )
     sim_replay_buffer_size: int = 1000
 
 
