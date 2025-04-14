@@ -50,17 +50,17 @@ if __name__ == "__main__":
         },
         "hvac_1": {
             "tags": [
-                SignalTags.CONTROL.value,
+                SignalTags.OBSERVATION.value,
             ]
         },
         "hvac_2": {
             "tags": [
-                SignalTags.CONTROL.value,
+                SignalTags.OBSERVATION.value,
             ]
         },
         "hvac_3": {
             "tags": [
-                SignalTags.CONTROL.value,
+                SignalTags.OBSERVATION.value,
             ]
         },
         "cool_setpoint": {

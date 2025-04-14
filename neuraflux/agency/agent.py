@@ -2,8 +2,8 @@ import datetime as dt
 import json
 import os
 from copy import copy
-import dill
 
+import dill
 import numpy as np
 import pandas as pd
 
@@ -28,6 +28,7 @@ from neuraflux.agency.utils_data import (
     read_parquet_table,
     tf_all_cyclic,
 )
+from neuraflux.agency.utils_policies import q_policy, random_policy
 from neuraflux.agency.utils_registries import (
     get_entities_in_registry,
     load_dqn_estimator_from_registry,
@@ -36,6 +37,7 @@ from neuraflux.agency.utils_registries import (
     push_replay_buffer_to_registry,
 )
 from neuraflux.agency.utils_rl_training import simple_training_loop
+from neuraflux.agency.utils_trajectories import Trajectory
 from neuraflux.global_variables import (
     CONTROL_KEY,
     DT_FILE_STR_FORMAT,
@@ -49,8 +51,8 @@ from neuraflux.global_variables import (
 from neuraflux.local_typing import AgentInMemoryStorageType, AssetType, UidType
 from neuraflux.schemas.agency import (
     AgentConfig,
-    RealLearningConfig,
     ControlSelectionConfig,
+    RealLearningConfig,
 )
 from neuraflux.schemas.control import DiscreteControl
 from neuraflux.time_ref import TimeInfo
@@ -134,39 +136,31 @@ class Agent:
         return self.run(*args, **kwargs)
 
     def get_control(
-        self, control_selection_config: ControlSelectionConfig
+        self, policy, policy_kwargs: dict, df: pd.DataFrame | None = None
     ) -> list[int]:
         """
         Get the control for the agent based on the control selection configuration.
         Args:
-            control_selection_config (ControlSelectionConfig): The control selection configuration.
+            policy (str): The policy to use for control selection.
+            policy_kwargs (dict): Additional arguments for the policy.
+            df (pd.DataFrame | None): The data to use for control selection. Defaults to None.
         Returns:
             list[DiscreteControl]: The control for the agent.
         """
-        policy = control_selection_config.policy
-        policy_kwargs = control_selection_config.policy_kwargs
         action_size = self.config.control.rl_config.action_size
         n_controllers = self.config.control.n_controllers
         if policy == "q_policy":
-            q_factors = self.get_q_factors(use_lite_inference=False)
-            if np.random.rand() <= policy_kwargs["epsilon"]:
-                control = [
-                    int(np.random.randint(0, action_size)) for _ in range(n_controllers)
-                ]
-            else:
-                control = [
-                    int(np.argmax(q_factors[c][-1].flatten()))
-                    for c in range(n_controllers)
-                ]
+            q_factors = self.get_q_factors(df=df, use_lite_inference=False)
+            controls = q_policy(q_values=q_factors, **policy_kwargs)
         elif policy == "random_policy":
-            control = [
-                int(np.random.randint(0, action_size)) for _ in range(n_controllers)
-            ]
+            controls = random_policy(
+                action_size=action_size, n_controllers=n_controllers, **policy_kwargs
+            )
         else:
             raise ValueError(
                 f"Unknown policy {policy}. Please check the configuration."
             )
-        return control
+        return controls
 
     def run(self) -> list[DiscreteControl] | None:
         """
@@ -183,7 +177,9 @@ class Agent:
                 config_dict=self.config.control.control_selection,
             )
         )
-        controls = self.get_control(control_selection_config)
+        policy = control_selection_config.policy
+        policy_kwargs = control_selection_config.policy_kwargs
+        controls = self.get_control(policy=policy, policy_kwargs=policy_kwargs)
         self._push_data_dict_to_memory_storage(
             storage_key=MS_AGENT_CONTROL_DATA_KEY,
             data_dict={
@@ -199,6 +195,9 @@ class Agent:
             self.clear_in_memory_storage()
 
         # 4 TODO: Train using simulated data
+        # traj = self.simulate_trajectory_at_time(
+        #        timestamp=self.time_info.t - dt.timedelta(seconds=300 * 48),
+        #    )
 
         # 5. Train using real data
         real_lr_config: RealLearningConfig = get_active_config_based_on_duration(
@@ -688,6 +687,51 @@ class Agent:
         )
 
         del buffer, q_estimator, estimator_metadata, history
+
+    def simulate_trajectory_at_time(
+        self,
+        timestamp: dt.datetime,
+        sim_len: int = 12,
+        policy: str = "random_policy",
+        policy_kwargs: dict = None,
+    ) -> Trajectory:
+        policy_kwargs = {} if policy_kwargs is None else policy_kwargs
+        df = self.get_data(start_time=timestamp).iloc[:sim_len]
+        history_len = self.config.control.rl_config.history_length
+        traj = Trajectory.partial_from_agent_df(agent_config=self.config, df=df)
+        t_sim = timestamp + dt.timedelta(seconds=300 * history_len)
+
+        for _ in range(sim_len - history_len):
+            # Get controls
+            traj_df = traj.as_df()
+            rl_df = traj_df[traj_df.index < t_sim]
+            controls = self.get_control(
+                policy=policy, policy_kwargs=policy_kwargs, df=rl_df
+            )
+            control_record = {
+                f"control_{i+1}": controls[i] for i in range(len(controls))
+            }
+            traj.add_control_record(t_sim, control_record)
+
+            # Estimate new state
+            state_record = {f"temperature_{i+1}": 21.0 for i in range(len(controls))}
+            traj.add_state_record(t_sim, state_record)
+
+            # Advance trajectory simulation time
+            t_sim += dt.timedelta(seconds=300)
+
+        # Finally, add computed columns to the trajectory
+        final_df = traj.as_df()
+        final_df_augmented = self.asset.augment_df(final_df)
+        final_df_augmented = add_vm_data_to_df(final_df_augmented, self.cpm)
+        final_df_augmented = add_tariff_data_to_df(
+            final_df_augmented, self.config.tariff
+        )
+        final_df_augmented = add_product_data_to_df(
+            final_df_augmented, self.config.product
+        )
+        final_df_augmented = tf_all_cyclic(final_df_augmented)
+        return final_df_augmented
 
     def to_file(self, directory: str = "") -> None:
         """

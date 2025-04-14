@@ -124,11 +124,11 @@ class Building(Asset):
 
             # Add control values
             if prev_idx is not None and df.loc[prev_idx, "control_1"] is not None:
-                df.loc[idx, "hvac_1"] = df.loc[idx, "control_1"] - 2
+                df.loc[idx, "hvac_1"] = df.loc[prev_idx, "control_1"] - 2
             if prev_idx is not None and df.loc[prev_idx, "control_2"] is not None:
-                df.loc[idx, "hvac_2"] = df.loc[idx, "control_2"] - 2
+                df.loc[idx, "hvac_2"] = df.loc[prev_idx, "control_2"] - 2
             if prev_idx is not None and df.loc[prev_idx, "control_3"] is not None:
-                df.loc[idx, "hvac_3"] = df.loc[idx, "control_3"] - 2
+                df.loc[idx, "hvac_3"] = df.loc[prev_idx, "control_3"] - 2
             prev_idx = idx
         return df
 

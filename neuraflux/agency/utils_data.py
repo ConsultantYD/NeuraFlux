@@ -1,9 +1,9 @@
 import datetime as dt
 import os
 
-from croniter import croniter
 import numpy as np
 import pandas as pd
+from croniter import croniter
 
 from neuraflux.agency.products import AvailableProductsEnum
 from neuraflux.agency.tariffs import AvailableTariffsEnum
@@ -16,6 +16,53 @@ from neuraflux.global_variables import (
     TIMESTAMP_PARTITION_COL,
 )
 from neuraflux.local_typing import AssetType
+from neuraflux.schemas.agency import AgentConfig, SignalTags
+
+
+def get_columns_with_tag(agent_config: AgentConfig, tag: SignalTags) -> list[str]:
+    """
+    Return a list of column names that contain the given tag.
+    Args:
+        agent_config (AgentConfig): The agent configuration object.
+        tag (SignalTags): The tag to filter by.
+    Returns:
+        list[str]: A list of column names that contain the given tag.
+    """
+    signal_infos = agent_config.data.signals_info
+    return [k for k, v in signal_infos.items() if tag in v.tags]
+
+
+def get_x_columns(agent_config: AgentConfig) -> list[str]:
+    """
+    Return a list of column names for the state, control, and exogenous variables.
+    Args:
+        agent_config (AgentConfig): The agent configuration object.
+    Returns:
+        list[str]: A list of column names for the state, control, and exogenous variables.
+    """
+    return get_columns_with_tag(agent_config, SignalTags.STATE)
+
+
+def get_u_columns(agent_config: AgentConfig) -> list[str]:
+    """
+    Return a list of column names for the control variables.
+    Args:
+        agent_config (AgentConfig): The agent configuration object.
+    Returns:
+        list[str]: A list of column names for the control variables.
+    """
+    return get_columns_with_tag(agent_config, SignalTags.CONTROL)
+
+
+def get_w_columns(agent_config: AgentConfig) -> list[str]:
+    """
+    Return a list of column names for the exogenous variables.
+    Args:
+        agent_config (AgentConfig): The agent configuration object.
+    Returns:
+        list[str]: A list of column names for the exogenous variables.
+    """
+    return get_columns_with_tag(agent_config, SignalTags.EXOGENOUS)
 
 
 def get_active_config_based_on_duration(
