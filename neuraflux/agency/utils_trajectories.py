@@ -22,12 +22,14 @@ class Trajectory:
         control_records: list[dict] | None = None,
         exogenous_records: list[dict] | None = None,
         state_records: list[dict] | None = None,
+        tf_records: list[dict] | None = None,
     ):
         # Initialize the trajectory with empty lists if None
         self.history_records = [] if history_records is None else history_records
         self.state_records = [] if state_records is None else state_records
         self.control_records = [] if control_records is None else control_records
         self.exogenous_records = [] if exogenous_records is None else exogenous_records
+        self.tf_records = [] if tf_records is None else tf_records
 
     def add_control_record(self, timestamp: dt.datetime, control_record: dict):
         """
@@ -99,6 +101,7 @@ class Trajectory:
             + self.control_records
             + self.exogenous_records
             + self.state_records
+            + self.tf_records
         )
         df = pd.DataFrame(all_records)
         df = df.set_index(TIMESTAMP_KEY)
@@ -141,10 +144,12 @@ class Trajectory:
         x_cols = get_x_columns(agent_config)
         u_cols = get_u_columns(agent_config)
         w_cols = get_w_columns(agent_config)
+        tf_cols = [col for col in df.columns if col.startswith("tf_")]
         history_len = agent_config.control.rl_config.history_length
         history_records = (
             df.iloc[0:history_len].reset_index(drop=False).to_dict("records")
         )
+        tf_records = df[tf_cols].reset_index(drop=False).to_dict("records")
         return cls(
             state_cols=x_cols,
             control_cols=u_cols,
@@ -153,4 +158,5 @@ class Trajectory:
             exogenous_records=df.loc[df.index[history_len:], w_cols]
             .reset_index(drop=False)
             .to_dict("records"),
+            tf_records=tf_records,
         )

@@ -54,6 +54,7 @@ from neuraflux.schemas.agency import (
     AgentConfig,
     ControlSelectionConfig,
     RealLearningConfig,
+    SimLearningConfig,
 )
 from neuraflux.schemas.control import DiscreteControl
 from neuraflux.time_ref import TimeInfo
@@ -94,6 +95,7 @@ class Agent:
         self.config = config
         self.directory = directory
         self.data_dir = os.path.join(directory, "data")
+        self.sim_data_dir = os.path.join(directory, "sim_data")
         self.buffer_registry_dir = os.path.join(directory, "buffer_registry")
         self.dqn_registry_dir = os.path.join(directory, "dqn_registry")
 
@@ -192,18 +194,17 @@ class Agent:
         control_cols = [c for c in df.columns if CONTROL_KEY in c]
         n_controls = len(control_cols)
         controls = df.loc[df.index == prev_t, control_cols].values.reshape(n_controls)
-
         # -------------------------------------------------
         # INFER STATE
         # -------------------------------------------------
         state_cols = get_x_columns(self.config)
         n_state_cols = len(state_cols)
+
         # Commercial Building
         if asset_type == "commercial building":
             previous_state = df.loc[df.index == prev_t, state_cols].values.reshape(
                 n_state_cols
             )
-
             new_state_values = previous_state + 0.25 * (controls - 2)
             new_state_dict = {
                 col: val for col, val in zip(state_cols, new_state_values)
@@ -230,9 +231,15 @@ class Agent:
                 config_dict=self.config.control.control_selection,
             )
         )
-        policy = control_selection_config.policy
-        policy_kwargs = control_selection_config.policy_kwargs
-        controls = self.get_control(policy=policy, policy_kwargs=policy_kwargs)
+        if control_selection_config.enabled:
+            policy = control_selection_config.policy
+            policy_kwargs = control_selection_config.policy_kwargs
+            controls = self.get_control(policy=policy, policy_kwargs=policy_kwargs)
+            output_controls = [DiscreteControl(c) for c in controls]
+        else:
+            output_controls = self.asset.get_auto_control(self.time_info.t, 10.0)
+            controls = [c.value for c in output_controls]
+        # Store control taken in memory
         self._push_data_dict_to_memory_storage(
             storage_key=MS_AGENT_CONTROL_DATA_KEY,
             data_dict={
@@ -247,10 +254,30 @@ class Agent:
             self.push_in_memory_data_to_db(self.data_dir)
             self.clear_in_memory_storage()
 
-        # 4 TODO: Train using simulated data
-        # traj = self.simulate_trajectory_at_time(
-        #        timestamp=self.time_info.t - dt.timedelta(seconds=300 * 48),
-        #    )
+        # 4 Train using simulated data
+        sim_lr_config: SimLearningConfig = get_active_config_based_on_duration(
+            duration_s=self.get_elapsed_time(),
+            config_dict=self.config.control.sim_learning_configs,
+        )
+        if sim_lr_config.enabled and cron_matches(
+            self.time_info.t, sim_lr_config.trigger_freq_cron
+        ):
+            n_samples = sim_lr_config.n_samples
+            n_traj_per_sample = sim_lr_config.n_traj_per_sample
+            reward = self.get_data(start_time=self.time_info.t - dt.timedelta(days=1))[
+                "reward"
+            ].sum()
+            print(f"Reward in the last 1 day: {round(reward, 2)}")
+            print(
+                f"{self.time_info.t}: Simulated RL training (n={n_samples}x{n_traj_per_sample}) ..."
+            )
+            self.simulated_rl_training(
+                n_samples=n_samples,
+                n_traj_per_sample=n_traj_per_sample,
+                traj_len=sim_lr_config.trajectory_len,
+                policy=sim_lr_config.policy,
+                policy_kwargs=sim_lr_config.policy_kwargs,
+            )
 
         # 5. Train using real data
         real_lr_config: RealLearningConfig = get_active_config_based_on_duration(
@@ -259,20 +286,8 @@ class Agent:
         )
         rl_train_freq = real_lr_config.trigger_freq_cron
         if real_lr_config.enabled and cron_matches(self.time_info.t, rl_train_freq):
-            reward = self.get_data(start_time=self.time_info.t - dt.timedelta(days=1))[
-                "reward"
-            ].sum()
-            traj = self.simulate_trajectory_at_time(
-                timestamp=self.time_info.t - dt.timedelta(seconds=300 * 48),
-            )
-            print(traj)
-            exit()
-            epsilon = 1.0
-            if "epsilon" in control_selection_config.policy_kwargs:
-                epsilon = control_selection_config.policy_kwargs["epsilon"]
-            print(f"Reward in the last 1 day (eps = {epsilon}): {round(reward, 2)}")
             self.rl_training()
-        return [DiscreteControl(c) for c in controls]
+        return output_controls
 
     def asset_data_collection(self):
         """
@@ -642,10 +657,21 @@ class Agent:
 
     def push_data_to_replay_buffer(
         self,
-        data: pd.DataFrame,
+        data: pd.DataFrame | list[pd.DataFrame],
         registry_dir: str,
         simulation: bool = False,
     ):
+        """
+        Push data to the replay buffer.
+        Args:
+            data (pd.DataFrame | list[pd.DataFrame]): The data to push to the replay buffer.
+            registry_dir (str): The directory for the replay buffer registry.
+            simulation (bool): Whether to push simulated data. Defaults to False.
+        """
+        # Sanitization and standardization
+        if not isinstance(data, list):
+            data = [data]
+
         # Get agent's replay buffer (real or simulated)
         replay_buffer, replay_buffer_metadata = self.get_replay_buffer(
             simulation=simulation, registry_dir=registry_dir
@@ -655,26 +681,26 @@ class Agent:
         rl_config = self.config.control.rl_config
         state_columns = rl_config.state_signals
         state_columns = get_full_state_signals_from_rl_config(rl_config)
-        control_columns = [col for col in data.columns if col.startswith(CONTROL_KEY)]
+        control_columns = [
+            CONTROL_KEY + f"_{i+1}" for i in range(rl_config.n_controllers)
+        ]
         seq_len = rl_config.history_length
         product = AvailableProductsEnum.from_string(self.config.product)
         reward_columns = product.get_reward_names()
 
         # Convert data to RL experience
-        experience_batch = convert_data_to_experience(
-            data, seq_len, state_columns, control_columns, reward_columns
-        )
+        for df in data:
+            experience_batch = convert_data_to_experience(
+                df, seq_len, state_columns, control_columns, reward_columns
+            )
 
-        # Add the experience samples from the dataframe to the replay buffer
-        for experience in zip(*experience_batch):
-            replay_buffer.add_experience_sample(experience=experience)
+            # Add the experience samples from the dataframe to the replay buffer
+            for experience in zip(*experience_batch):
+                replay_buffer.add_experience_sample(experience=experience)
 
         # Save the replay buffer to the registry
         buffer_name = self.uid + "_sim" if simulation else self.uid + "_real"
         replay_buffer_metadata["n_experiences"] = len(replay_buffer)
-        print(
-            f"Replay buffer now has {replay_buffer_metadata['n_experiences']} samples."
-        )
         push_replay_buffer_to_registry(
             registry_dir=registry_dir,
             name=buffer_name,
@@ -753,13 +779,28 @@ class Agent:
         policy: str = "random_policy",
         policy_kwargs: dict = None,
         timestep_s: int = 300,
-    ) -> Trajectory:
+    ) -> pd.DataFrame:
+        """
+        Simulate a trajectory at a specific time step.
+        Args:
+            timestamp (dt.datetime): The time step to simulate.
+            sim_len (int): The length of the simulation. Defaults to 12.
+            policy (str): The policy to use for control selection. Defaults to "random_policy".
+            policy_kwargs (dict): Additional arguments for the policy. Defaults to None.
+            timestep_s (int): The time step in seconds. Defaults to 300.
+        Returns:
+            pd.DataFrame: The simulated trajectory.
+        """
+        # Initial variables definition
         policy_kwargs = {} if policy_kwargs is None else policy_kwargs
         df = self.get_data(start_time=timestamp).iloc[:sim_len]
         history_len = self.config.control.rl_config.history_length
+
+        # Initialize trajectory
         traj = Trajectory.partial_from_agent_df(agent_config=self.config, df=df)
         t_sim = timestamp + dt.timedelta(seconds=timestep_s * history_len)
 
+        # Loop over the simulation length
         for _ in range(sim_len - history_len):
             # Get controls
             traj_df = traj.as_df()
@@ -792,6 +833,123 @@ class Agent:
         )
         final_df_augmented = tf_all_cyclic(final_df_augmented)
         return final_df_augmented
+
+    def simulated_rl_training(
+        self,
+        start_time: dt.datetime | None = None,
+        end_time: dt.datetime | None = None,
+        n_samples: int | None = 30,
+        n_traj_per_sample: int = 1,
+        traj_len: int = 12,
+        policy: str = "q_policy",
+        policy_kwargs: dict = {"epsilon": 0.5},
+    ) -> None:
+        # Download necessary data
+        history_len = self.config.control.rl_config.history_length
+        df = self.get_data(start_time=start_time, end_time=end_time)
+
+        # Convert the pandas DatetimeIndex to an array of Python datetime objects
+        datetime_index = df.index.to_pydatetime()
+
+        # Now sample from this array of Python datetime objects
+        samples_batch = (
+            datetime_index[history_len : -(history_len + traj_len)]
+            if n_samples is None
+            else np.random.choice(
+                datetime_index[history_len : -(history_len + traj_len)],
+                n_samples,
+                replace=False,
+            )
+        )
+
+        # Loop and generate trajectory samples, saving them in buffer
+        trajectories_list = []
+        for t in samples_batch:
+            for _ in range(n_traj_per_sample):
+                # Simulate trajectory
+                traj_df = self.simulate_trajectory_at_time(
+                    timestamp=t,
+                    sim_len=traj_len,
+                    policy=policy,
+                    policy_kwargs=policy_kwargs,
+                )
+
+                # Raise error if NaN values in traj df
+                if traj_df.isna().any().any():
+                    raise ValueError(
+                        f"NaN values detected in simulated trajectory at time {t}. \n {traj_df}"
+                    )
+
+                # Add trajectory to the list
+                trajectories_list.append(traj_df)
+
+        # Add trajectories to the replay buffer
+        self.push_data_to_replay_buffer(
+            data=trajectories_list,
+            registry_dir=self.buffer_registry_dir,
+            simulation=True,
+        )
+
+        # Add additional informative columns to each df, and concatenate
+        for i, sim_df in enumerate(trajectories_list):
+            # Add trajectory counter
+            sim_df["traj_counter"] = i + 1
+            sim_df["is_real_data"] = False
+            sim_df.loc[sim_df.index[:history_len], "is_real_data"] = True
+
+        trajectories_list = [
+            traj_df.assign(traj_counter=i + 1)
+            for i, traj_df in enumerate(trajectories_list)
+        ]
+        all_sim_df = pd.concat(trajectories_list, axis=0)
+        all_sim_df.reset_index(inplace=True)
+        all_sim_df["training_time"] = self.time_info.t.date()
+
+        # Save to local storage
+        push_df_as_partitionned_parquet(
+            all_sim_df, self.sim_data_dir, partition_cols=["training_time"]
+        )
+
+        # Retrieve buffer and q-estimator from registry
+        buffer, buffer_metadata = self.get_replay_buffer(
+            registry_dir=self.buffer_registry_dir
+        )
+        q_estimator, estimator_metadata = self.get_q_estimator(
+            registry_dir=self.dqn_registry_dir
+        )
+
+        # Training loop
+        for _ in range(10):
+            q_estimator, buffer, _ = simple_training_loop(
+                replay_buffer=buffer,
+                q_estimator=q_estimator,
+            )
+            q_estimator.update_target_model()
+
+        # Save new Q-estimator to registry
+        estimator_name = (
+            self.uid + "_" + self.time_info.t.strftime(DT_FILE_STR_FORMAT) + "_sim"
+        )
+        estimator_metadata["last_sim_training"] = self.time_info.get_t_as_str()
+        push_dqn_estimator_to_registry(
+            registry_dir=self.dqn_registry_dir,
+            name=estimator_name,
+            estimator=q_estimator,
+            metadata=estimator_metadata,
+        )
+
+        # Save the replay buffer to the registry
+        buffer_name = self.uid + "_sim"
+        buffer_metadata["n_experiences"] = len(buffer)
+        push_replay_buffer_to_registry(
+            registry_dir=self.buffer_registry_dir,
+            name=buffer_name,
+            replay_buffer=buffer,
+            metadata=buffer_metadata,
+            overwrite=True,
+        )
+
+        del buffer, q_estimator, estimator_metadata, traj_df
 
     def to_file(self, directory: str = "") -> None:
         """

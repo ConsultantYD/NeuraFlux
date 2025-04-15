@@ -15,144 +15,11 @@
                 "n_controllers": 3,
                 "control_selection": {
                     "0": {
-                        "enabled": true,
+                        "enabled": false,
                         "policy": "random_policy",
                         "policy_kwargs": {}
                     },
-                    "86700": {
-                        "enabled": true,
-                        "policy": "q_policy",
-                        "policy_kwargs": {
-                            "epsilon": 0.95
-                        }
-                    },
-                    "173100": {
-                        "enabled": true,
-                        "policy": "q_policy",
-                        "policy_kwargs": {
-                            "epsilon": 0.9
-                        }
-                    },
-                    "259500": {
-                        "enabled": true,
-                        "policy": "q_policy",
-                        "policy_kwargs": {
-                            "epsilon": 0.85
-                        }
-                    },
-                    "345900": {
-                        "enabled": true,
-                        "policy": "q_policy",
-                        "policy_kwargs": {
-                            "epsilon": 0.8
-                        }
-                    },
-                    "432300": {
-                        "enabled": true,
-                        "policy": "q_policy",
-                        "policy_kwargs": {
-                            "epsilon": 0.75
-                        }
-                    },
-                    "518700": {
-                        "enabled": true,
-                        "policy": "q_policy",
-                        "policy_kwargs": {
-                            "epsilon": 0.7
-                        }
-                    },
-                    "605100": {
-                        "enabled": true,
-                        "policy": "q_policy",
-                        "policy_kwargs": {
-                            "epsilon": 0.6499999999999999
-                        }
-                    },
-                    "691500": {
-                        "enabled": true,
-                        "policy": "q_policy",
-                        "policy_kwargs": {
-                            "epsilon": 0.6
-                        }
-                    },
-                    "777900": {
-                        "enabled": true,
-                        "policy": "q_policy",
-                        "policy_kwargs": {
-                            "epsilon": 0.55
-                        }
-                    },
-                    "864300": {
-                        "enabled": true,
-                        "policy": "q_policy",
-                        "policy_kwargs": {
-                            "epsilon": 0.5
-                        }
-                    },
-                    "950700": {
-                        "enabled": true,
-                        "policy": "q_policy",
-                        "policy_kwargs": {
-                            "epsilon": 0.44999999999999996
-                        }
-                    },
-                    "1037100": {
-                        "enabled": true,
-                        "policy": "q_policy",
-                        "policy_kwargs": {
-                            "epsilon": 0.3999999999999999
-                        }
-                    },
-                    "1123500": {
-                        "enabled": true,
-                        "policy": "q_policy",
-                        "policy_kwargs": {
-                            "epsilon": 0.35
-                        }
-                    },
-                    "1209900": {
-                        "enabled": true,
-                        "policy": "q_policy",
-                        "policy_kwargs": {
-                            "epsilon": 0.29999999999999993
-                        }
-                    },
-                    "1296300": {
-                        "enabled": true,
-                        "policy": "q_policy",
-                        "policy_kwargs": {
-                            "epsilon": 0.25
-                        }
-                    },
-                    "1382700": {
-                        "enabled": true,
-                        "policy": "q_policy",
-                        "policy_kwargs": {
-                            "epsilon": 0.19999999999999996
-                        }
-                    },
-                    "1469100": {
-                        "enabled": true,
-                        "policy": "q_policy",
-                        "policy_kwargs": {
-                            "epsilon": 0.1499999999999999
-                        }
-                    },
-                    "1555500": {
-                        "enabled": true,
-                        "policy": "q_policy",
-                        "policy_kwargs": {
-                            "epsilon": 0.09999999999999998
-                        }
-                    },
-                    "1641900": {
-                        "enabled": true,
-                        "policy": "q_policy",
-                        "policy_kwargs": {
-                            "epsilon": 0.04999999999999993
-                        }
-                    },
-                    "1728300": {
+                    "604800": {
                         "enabled": true,
                         "policy": "q_policy",
                         "policy_kwargs": {
@@ -182,7 +49,7 @@
                 "real_learning_configs": {
                     "0": {
                         "enabled": false,
-                        "trigger_freq_cron": "0 0 * * *",
+                        "trigger_freq_cron": "0 0 * * 1",
                         "rl_training_config": {
                             "target_update_period": 20,
                             "n_fit_epochs": 10,
@@ -194,9 +61,9 @@
                             "tf_batch_size": 32
                         }
                     },
-                    "86400": {
+                    "604800": {
                         "enabled": true,
-                        "trigger_freq_cron": "0 0 * * *",
+                        "trigger_freq_cron": "0 0 * * 1",
                         "rl_training_config": {
                             "target_update_period": 20,
                             "n_fit_epochs": 10,
@@ -213,10 +80,35 @@
                 "sim_learning_configs": {
                     "0": {
                         "enabled": false,
-                        "trigger_freq_cron": "55 23 */2 * *",
+                        "trigger_freq_cron": "0 0 * * *",
+                        "n_samples": 30,
                         "n_traj_per_sample": 1,
-                        "n_samplings": 10,
-                        "trajectory_len": 10,
+                        "trajectory_len": 12,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.5
+                        },
+                        "rl_training_config": {
+                            "target_update_period": 20,
+                            "n_fit_epochs": 10,
+                            "experience_sampling_size": 128,
+                            "learning_rate": 0.0005,
+                            "gradient_clip": 0.5,
+                            "n_target_iterators": 20,
+                            "n_sampling_iters": 10,
+                            "tf_batch_size": 32
+                        }
+                    },
+                    "86400": {
+                        "enabled": true,
+                        "trigger_freq_cron": "0 0 * * *",
+                        "n_samples": 30,
+                        "n_traj_per_sample": 1,
+                        "trajectory_len": 12,
+                        "policy": "q_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.5
+                        },
                         "rl_training_config": {
                             "target_update_period": 20,
                             "n_fit_epochs": 10,
