@@ -912,7 +912,7 @@ class Agent:
 
         # Retrieve buffer and q-estimator from registry
         buffer, buffer_metadata = self.get_replay_buffer(
-            registry_dir=self.buffer_registry_dir
+            simulation=True, registry_dir=self.buffer_registry_dir
         )
         q_estimator, estimator_metadata = self.get_q_estimator(
             registry_dir=self.dqn_registry_dir
