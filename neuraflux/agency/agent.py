@@ -27,6 +27,7 @@ from neuraflux.agency.utils_data import (
     push_df_as_partitionned_parquet,
     read_parquet_table,
     tf_all_cyclic,
+    get_x_columns,
 )
 from neuraflux.agency.utils_policies import q_policy, random_policy
 from neuraflux.agency.utils_registries import (
@@ -162,6 +163,58 @@ class Agent:
             )
         return controls
 
+    def get_state_prediction(
+        self,
+        prev_t: dt.datetime,
+        df: pd.DataFrame,
+        asset_type: str | None = None,
+    ) -> dict[str, int | float]:
+        """
+        Get the prediction of state variables for the asset at a specific time step.
+        Args:
+            prev_t (dt.datetime): The time step BEFORE the one to get the state prediction for.
+            df (pd.DataFrame | None): The data to use for state prediction. Defaults to None.
+            asset_type (str | None): The type of asset. Defaults to None.
+        Returns:
+            dict[str, int | float]: The prediction of state variables at the timestep.
+        """
+
+        # Use associated asset to derive type if None
+        if asset_type is None:
+            if self.asset is not None:
+                asset_type = self.asset.__class__.NAME
+            else:
+                raise ValueError(
+                    "Asset type is None and no asset is assigned to the agent."
+                )
+
+        # Retrieve controls
+        control_cols = [c for c in df.columns if CONTROL_KEY in c]
+        n_controls = len(control_cols)
+        controls = df.loc[df.index == prev_t, control_cols].values.reshape(n_controls)
+
+        # -------------------------------------------------
+        # INFER STATE
+        # -------------------------------------------------
+        state_cols = get_x_columns(self.config)
+        n_state_cols = len(state_cols)
+        # Commercial Building
+        if asset_type == "commercial building":
+            previous_state = df.loc[df.index == prev_t, state_cols].values.reshape(
+                n_state_cols
+            )
+
+            new_state_values = previous_state + 0.25 * (controls - 2)
+            new_state_dict = {
+                col: val for col, val in zip(state_cols, new_state_values)
+            }
+        else:
+            raise ValueError(
+                f"Unknown asset type {asset_type}. Please check the configuration."
+            )
+
+        return new_state_dict
+
     def run(self) -> list[DiscreteControl] | None:
         """
         Run the agent for a given time step.
@@ -209,6 +262,11 @@ class Agent:
             reward = self.get_data(start_time=self.time_info.t - dt.timedelta(days=1))[
                 "reward"
             ].sum()
+            traj = self.simulate_trajectory_at_time(
+                timestamp=self.time_info.t - dt.timedelta(seconds=300 * 48),
+            )
+            print(traj)
+            exit()
             epsilon = 1.0
             if "epsilon" in control_selection_config.policy_kwargs:
                 epsilon = control_selection_config.policy_kwargs["epsilon"]
@@ -694,12 +752,13 @@ class Agent:
         sim_len: int = 12,
         policy: str = "random_policy",
         policy_kwargs: dict = None,
+        timestep_s: int = 300,
     ) -> Trajectory:
         policy_kwargs = {} if policy_kwargs is None else policy_kwargs
         df = self.get_data(start_time=timestamp).iloc[:sim_len]
         history_len = self.config.control.rl_config.history_length
         traj = Trajectory.partial_from_agent_df(agent_config=self.config, df=df)
-        t_sim = timestamp + dt.timedelta(seconds=300 * history_len)
+        t_sim = timestamp + dt.timedelta(seconds=timestep_s * history_len)
 
         for _ in range(sim_len - history_len):
             # Get controls
@@ -714,11 +773,12 @@ class Agent:
             traj.add_control_record(t_sim, control_record)
 
             # Estimate new state
-            state_record = {f"temperature_{i+1}": 21.0 for i in range(len(controls))}
-            traj.add_state_record(t_sim, state_record)
+            prev_t = t_sim - dt.timedelta(seconds=timestep_s)
+            new_state_record = self.get_state_prediction(prev_t=prev_t, df=rl_df)
+            traj.add_state_record(t_sim, new_state_record)
 
             # Advance trajectory simulation time
-            t_sim += dt.timedelta(seconds=300)
+            t_sim += dt.timedelta(seconds=timestep_s)
 
         # Finally, add computed columns to the trajectory
         final_df = traj.as_df()
