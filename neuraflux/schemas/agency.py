@@ -61,9 +61,9 @@ class SimLearningConfig(BaseSchema):
     trigger_freq_cron: str = "0 0 * * *"  # Training frequency
     # Sampling and generating simulated trajectories
     # NOTE: n_traj = n_samples(~t) * n_traj_per_sample
-    n_samples: int = 30  # Number of real timestamps to sample from
+    n_samples: int = 100  # Number of real timestamps to sample from
     n_traj_per_sample: int = 1  # Number of trajectories to generate at each sample
-    trajectory_len: int = 12  # Length of each trajectory sampled and simulated
+    trajectory_len: int = 18  # Length of each trajectory sampled and simulated
     policy: Literal["random_policy", "q_policy", "hvac_policy"] = "hvac_policy"
     policy_kwargs: dict[str, object] = {"epsilon": 0.5, "comfort_constraint": False}
     # Training

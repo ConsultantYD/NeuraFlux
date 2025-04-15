@@ -73,11 +73,15 @@ class SimpleTariffOptimizationProduct(Product):
 
 
 class HVACTariffAndComfortProduct(Product):
+    def __init__(self, period: int = 4):
+        super().__init__(period)
+
     def calculate_rewards(self, df: pd.DataFrame) -> np.ndarray:
         df = df.copy()
 
         # Energy
-        energy_reward = -df[TARIFF_KEY].values
+        mult_factor = 10  # Scale energy-related reward
+        energy_reward = -df[TARIFF_KEY].values * mult_factor
         reward = energy_reward
 
         # Comfort
@@ -90,9 +94,9 @@ class HVACTariffAndComfortProduct(Product):
             # 0 otherwise
             reward += np.where(
                 df[col].values > sp_cool,
-                -np.square(sp_cool - df[col].values),
+                -np.square(sp_cool - df[col].values)*10,
                 np.where(
-                    df[col].values < sp_heat, -np.square(sp_heat - df[col].values), 0
+                    df[col].values < sp_heat, -np.square(sp_heat - df[col].values)*10, 0
                 ),
             )
         df[REWARD_KEY] = reward

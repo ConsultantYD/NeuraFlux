@@ -756,6 +756,8 @@ class Agent:
             q_estimator, buffer, _ = simple_training_loop(
                 replay_buffer=buffer,
                 q_estimator=q_estimator,
+                sampling_size=512,
+                learning_rate=5e-4
             )
             q_estimator.update_target_model()
 
@@ -785,7 +787,7 @@ class Agent:
     def simulate_trajectory_at_time(
         self,
         timestamp: dt.datetime,
-        sim_len: int = 12,
+        sim_len: int = 18,
         policy: str = "random_policy",
         policy_kwargs: dict = None,
         timestep_s: int = 300,
@@ -848,9 +850,9 @@ class Agent:
         self,
         start_time: dt.datetime | None = None,
         end_time: dt.datetime | None = None,
-        n_samples: int | None = 30,
+        n_samples: int | None = 100,
         n_traj_per_sample: int = 1,
-        traj_len: int = 12,
+        traj_len: int = 18,
         policy: str = "q_policy",
         policy_kwargs: dict = {"epsilon": 0.5},
     ) -> None:
@@ -929,12 +931,13 @@ class Agent:
         )
 
         # Training loop
-        for _ in range(10):
+        for _ in range(15):
             q_estimator, buffer, _ = simple_training_loop(
                 replay_buffer=buffer,
                 q_estimator=q_estimator,
-                learning_rate=2.5e-4,
-                sampling_size=128,
+                learning_rate=1e-4,
+                sampling_size=256,
+                tf_batch_size=8
             )
             q_estimator.update_target_model()
 
