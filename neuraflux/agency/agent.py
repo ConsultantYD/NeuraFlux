@@ -24,12 +24,12 @@ from neuraflux.agency.utils_data import (
     collect_signals_from_asset,
     cron_matches,
     get_active_config_based_on_duration,
+    get_x_columns,
     push_df_as_partitionned_parquet,
     read_parquet_table,
     tf_all_cyclic,
-    get_x_columns,
 )
-from neuraflux.agency.utils_policies import q_policy, random_policy
+from neuraflux.agency.utils_policies import hvac_policy, q_policy, random_policy
 from neuraflux.agency.utils_registries import (
     get_entities_in_registry,
     load_dqn_estimator_from_registry,
@@ -158,6 +158,15 @@ class Agent:
         elif policy == "random_policy":
             controls = random_policy(
                 action_size=action_size, n_controllers=n_controllers, **policy_kwargs
+            )
+        elif policy == "hvac_policy":
+            q_factors = self.get_q_factors(df=df, use_lite_inference=False)
+            state_cols = get_x_columns(self.config)
+            temp = df.loc[df.index[-1], state_cols].values
+            sp_vec = df.loc[df.index[-1], ["heat_setpoint", "cool_setpoint"]].values
+            sp = (sp_vec[0], sp_vec[1])
+            controls = hvac_policy(
+                temperatures=temp, setpoints=sp, q_values=q_factors, **policy_kwargs
             )
         else:
             raise ValueError(
@@ -923,6 +932,8 @@ class Agent:
             q_estimator, buffer, _ = simple_training_loop(
                 replay_buffer=buffer,
                 q_estimator=q_estimator,
+                learning_rate=2.5e-4,
+                sampling_size=128,
             )
             q_estimator.update_target_model()
 

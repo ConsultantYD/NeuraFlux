@@ -1,11 +1,12 @@
 import json
 
-from neuraflux.global_variables import OAT_KEY
 from neuraflux.geography import CityEnum
+from neuraflux.global_variables import OAT_KEY
 from neuraflux.schemas.agency import (
     AgentConfig,
     AgentControlConfig,
     AgentDataConfig,
+    ControlSelectionConfig,
     RLConfig,
     SignalTags,
 )
@@ -104,13 +105,19 @@ if __name__ == "__main__":
                 if SignalTags.RL_STATE.value in v["tags"]
             ],
         ),
+        control_selection={
+            0: ControlSelectionConfig(enabled=False),
+            60 * 60 * 24 * 7: ControlSelectionConfig(
+                policy="hvac_policy", policy_kwargs={"epsilon": 0.0}
+            ),
+        },
     )
 
     AGENT_DATA_CONFIG = AgentDataConfig(
         control_power_mapping=CONTROL_POWER_MAPPING,
         signals_info=SIGNALS_INFO,
         tracked_signals=list(SIGNALS_INFO.keys()),
-        memory_dump_freq_cron="55 23 * * *",
+        memory_dump_freq_cron="55 23 */3 * *",
     )
 
     AGENT_CONFIG = AgentConfig(
@@ -124,7 +131,7 @@ if __name__ == "__main__":
     DATA_CONFIG = SimulationDataConfig(base_dir="Data Module")
     TIME_CONFIG = SimulationTimeConfig(
         start_time="2023-01-01T00:00:00",
-        end_time="2023-01-30T00:00:00",
+        end_time="2023-07-01T00:00:00",
         step_size_s=300,
     )
 

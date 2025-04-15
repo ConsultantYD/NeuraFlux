@@ -1,8 +1,9 @@
 from enum import Enum, unique
 from typing import Any, Literal
 
-from .base import BaseSchema
 from pydantic import Field
+
+from .base import BaseSchema
 
 
 # ----------------------------------------------------------------------------
@@ -63,7 +64,7 @@ class SimLearningConfig(BaseSchema):
     n_samples: int = 30  # Number of real timestamps to sample from
     n_traj_per_sample: int = 1  # Number of trajectories to generate at each sample
     trajectory_len: int = 12  # Length of each trajectory sampled and simulated
-    policy: Literal["random_policy", "q_policy"] = "q_policy"
+    policy: Literal["random_policy", "q_policy", "hvac_policy"] = "hvac_policy"
     policy_kwargs: dict[str, object] = {"epsilon": 0.5}
     # Training
     rl_training_config: RLTrainingConfig = RLTrainingConfig()
@@ -99,7 +100,7 @@ class SignalInfo(BaseSchema):
 
 class ControlSelectionConfig(BaseSchema):
     enabled: bool = True
-    policy: Literal["random_policy", "q_policy"] = "random_policy"
+    policy: Literal["random_policy", "q_policy", "hvac_policy"] = "q_policy"
     policy_kwargs: dict[str, object] = {}
 
 

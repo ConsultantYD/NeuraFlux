@@ -16,12 +16,12 @@
                 "control_selection": {
                     "0": {
                         "enabled": false,
-                        "policy": "random_policy",
+                        "policy": "q_policy",
                         "policy_kwargs": {}
                     },
                     "604800": {
                         "enabled": true,
-                        "policy": "q_policy",
+                        "policy": "hvac_policy",
                         "policy_kwargs": {
                             "epsilon": 0.0
                         }
@@ -84,7 +84,7 @@
                         "n_samples": 30,
                         "n_traj_per_sample": 1,
                         "trajectory_len": 12,
-                        "policy": "q_policy",
+                        "policy": "hvac_policy",
                         "policy_kwargs": {
                             "epsilon": 0.5
                         },
@@ -105,7 +105,7 @@
                         "n_samples": 30,
                         "n_traj_per_sample": 1,
                         "trajectory_len": 12,
-                        "policy": "q_policy",
+                        "policy": "hvac_policy",
                         "policy_kwargs": {
                             "epsilon": 0.5
                         },
@@ -283,7 +283,7 @@
                         ]
                     }
                 },
-                "memory_dump_freq_cron": "55 23 * * *"
+                "memory_dump_freq_cron": "55 23 */3 * *"
             },
             "product": "HVAC_TARIFF_COMFORT",
             "tariff": "ONTARIO_GEN_TOU"
@@ -348,7 +348,7 @@
     "seed": 42,
     "time": {
         "start_time": "2023-01-01T00:00:00",
-        "end_time": "2023-01-30T00:00:00",
+        "end_time": "2023-07-01T00:00:00",
         "step_size_s": 300
     }
 }

@@ -40,15 +40,6 @@ class Building(Asset):
         # Store outside air temperature for this step
         self.outside_air_temperature = outside_air_temperature
 
-        # TODO: Implement in Agent
-        # TEMPORARY: fallback to auto control in individual zones if discomfort too big
-        def_control = self.get_auto_control(timestamp, outside_air_temperature)
-        for i in range(len(control)):
-            if self.temperature[i] > self.cool_setpoint + 0.5:
-                control[i] = def_control[i]
-            elif self.temperature[i] < self.heat_setpoint - 0.5:
-                control[i] = def_control[i]
-
         # Define the new state of the HVAC system based on controls
         self.hvac = [c.value - 2 for c in control]
 
