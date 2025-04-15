@@ -160,6 +160,7 @@ class Agent:
                 action_size=action_size, n_controllers=n_controllers, **policy_kwargs
             )
         elif policy == "hvac_policy":
+            df = self.get_data(start_time=self.time_info.t-dt.timedelta(seconds=300*24))
             q_factors = self.get_q_factors(df=df, use_lite_inference=False)
             state_cols = get_x_columns(self.config)
             temp = df.loc[df.index[-1], state_cols].values
