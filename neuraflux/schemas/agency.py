@@ -65,7 +65,7 @@ class SimLearningConfig(BaseSchema):
     n_traj_per_sample: int = 1  # Number of trajectories to generate at each sample
     trajectory_len: int = 12  # Length of each trajectory sampled and simulated
     policy: Literal["random_policy", "q_policy", "hvac_policy"] = "hvac_policy"
-    policy_kwargs: dict[str, object] = {"epsilon": 0.5}
+    policy_kwargs: dict[str, object] = {"epsilon": 0.5, "comfort_constraint": False}
     # Training
     rl_training_config: RLTrainingConfig = RLTrainingConfig()
 

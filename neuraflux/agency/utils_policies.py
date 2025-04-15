@@ -41,6 +41,7 @@ def hvac_policy(
     setpoints: tuple[float, float],
     q_values: list[np.array],
     epsilon: float,
+    comfort_constraint: bool = True,
 ):
     """
     HVAC policy that selects actions based on temperature and Q-values.
@@ -55,6 +56,8 @@ def hvac_policy(
         Q-values for each controller.
     epsilon : float
         Probability of choosing a random action.
+    comfort_constraint : bool
+        Whether to apply comfort constraints.
 
     Returns
     -------
@@ -64,9 +67,10 @@ def hvac_policy(
     # Compute and apply the def Q-policy by default
     controls = np.array(q_policy(q_values, epsilon))
 
-    # Check for discomfort, and automatically set stage 1 if not present
-    controls[(temperatures < setpoints[0]) & (controls < 3)] = 3
-    controls[(temperatures > setpoints[1]) & (controls > 1)] = 1
+    if comfort_constraint:
+        # Check for discomfort, and automatically set stage 1 if not present
+        controls[(temperatures < setpoints[0]) & (controls < 3)] = 3
+        controls[(temperatures > setpoints[1]) & (controls > 1)] = 1
 
     # TODO: Add power cap logic
 

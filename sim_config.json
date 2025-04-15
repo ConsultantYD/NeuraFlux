@@ -86,7 +86,8 @@
                         "trajectory_len": 12,
                         "policy": "hvac_policy",
                         "policy_kwargs": {
-                            "epsilon": 0.5
+                            "epsilon": 0.5,
+                            "comfort_constraint": false
                         },
                         "rl_training_config": {
                             "target_update_period": 20,
@@ -107,7 +108,8 @@
                         "trajectory_len": 12,
                         "policy": "hvac_policy",
                         "policy_kwargs": {
-                            "epsilon": 0.5
+                            "epsilon": 0.5,
+                            "comfort_constraint": false
                         },
                         "rl_training_config": {
                             "target_update_period": 20,
