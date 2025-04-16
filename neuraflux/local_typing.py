@@ -9,6 +9,9 @@ IndexType = int | dt.datetime
 SignalType = dict[str, (float | int | str)]
 UidType = str
 
+# Agent
+AgentInMemoryStorageType = dict[str, list[dict[str, float | int | str]]]
+
 # Assets
 AssetType = Building | ElectricVehicle | EnergyStorage
 

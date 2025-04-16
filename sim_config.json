@@ -1,0 +1,356 @@
+{
+    "agents": {
+        "Agent001": {
+            "asset_metadata": {
+                "address": "123 Fake St, Anytown, CA",
+                "timezone": "America/Toronto",
+                "location": [
+                    43.7,
+                    -79.42,
+                    0.0
+                ],
+                "owner": "John Doe"
+            },
+            "control": {
+                "n_controllers": 3,
+                "control_selection": {
+                    "0": {
+                        "enabled": false,
+                        "policy": "q_policy",
+                        "policy_kwargs": {}
+                    },
+                    "604800": {
+                        "enabled": true,
+                        "policy": "hvac_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.0
+                        }
+                    }
+                },
+                "rl_config": {
+                    "action_size": 5,
+                    "state_signals": [
+                        "temperature_1",
+                        "temperature_2",
+                        "temperature_3",
+                        "oat",
+                        "cool_setpoint",
+                        "heat_setpoint",
+                        "occupancy"
+                    ],
+                    "n_controllers": 3,
+                    "history_length": 3,
+                    "discount_factor": 1.0,
+                    "add_hourly_time_features_to_state": true,
+                    "add_daily_time_features_to_state": true,
+                    "add_weekly_time_features_to_state": false,
+                    "add_monthly_time_features_to_state": false
+                },
+                "real_learning_configs": {
+                    "0": {
+                        "enabled": false,
+                        "trigger_freq_cron": "0 0 * * 1",
+                        "rl_training_config": {
+                            "target_update_period": 20,
+                            "n_fit_epochs": 10,
+                            "experience_sampling_size": 128,
+                            "learning_rate": 0.0005,
+                            "gradient_clip": 0.5,
+                            "n_target_iterators": 20,
+                            "n_sampling_iters": 10,
+                            "tf_batch_size": 32
+                        }
+                    },
+                    "604800": {
+                        "enabled": true,
+                        "trigger_freq_cron": "0 0 * * 1",
+                        "rl_training_config": {
+                            "target_update_period": 20,
+                            "n_fit_epochs": 10,
+                            "experience_sampling_size": 128,
+                            "learning_rate": 0.0005,
+                            "gradient_clip": 0.5,
+                            "n_target_iterators": 20,
+                            "n_sampling_iters": 10,
+                            "tf_batch_size": 32
+                        }
+                    }
+                },
+                "real_replay_buffer_size": 10000,
+                "sim_learning_configs": {
+                    "0": {
+                        "enabled": false,
+                        "trigger_freq_cron": "0 0 * * *",
+                        "n_samples": 30,
+                        "n_traj_per_sample": 1,
+                        "trajectory_len": 12,
+                        "policy": "hvac_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.5,
+                            "comfort_constraint": false
+                        },
+                        "rl_training_config": {
+                            "target_update_period": 20,
+                            "n_fit_epochs": 10,
+                            "experience_sampling_size": 128,
+                            "learning_rate": 0.0005,
+                            "gradient_clip": 0.5,
+                            "n_target_iterators": 20,
+                            "n_sampling_iters": 10,
+                            "tf_batch_size": 32
+                        }
+                    },
+                    "86400": {
+                        "enabled": true,
+                        "trigger_freq_cron": "0 0 * * *",
+                        "n_samples": 30,
+                        "n_traj_per_sample": 1,
+                        "trajectory_len": 12,
+                        "policy": "hvac_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.5,
+                            "comfort_constraint": false
+                        },
+                        "rl_training_config": {
+                            "target_update_period": 20,
+                            "n_fit_epochs": 10,
+                            "experience_sampling_size": 128,
+                            "learning_rate": 0.0005,
+                            "gradient_clip": 0.5,
+                            "n_target_iterators": 20,
+                            "n_sampling_iters": 10,
+                            "tf_batch_size": 32
+                        }
+                    }
+                },
+                "sim_replay_buffer_size": 1000
+            },
+            "components_metadata": [],
+            "data": {
+                "control_power_mapping": {
+                    "0": 40.0,
+                    "1": 20.0,
+                    "2": 0.0,
+                    "3": 20.0,
+                    "4": 40.0
+                },
+                "tracked_signals": [
+                    "temperature_1",
+                    "temperature_2",
+                    "temperature_3",
+                    "oat",
+                    "hvac_1",
+                    "hvac_2",
+                    "hvac_3",
+                    "cool_setpoint",
+                    "heat_setpoint",
+                    "occupancy"
+                ],
+                "signals_info": {
+                    "temperature_1": {
+                        "min_value": -50,
+                        "max_value": 50,
+                        "scalable": true,
+                        "source": "asset",
+                        "tags": [
+                            "X",
+                            "S"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    },
+                    "temperature_2": {
+                        "min_value": -50,
+                        "max_value": 50,
+                        "scalable": true,
+                        "source": "asset",
+                        "tags": [
+                            "X",
+                            "S"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    },
+                    "temperature_3": {
+                        "min_value": -50,
+                        "max_value": 50,
+                        "scalable": true,
+                        "source": "asset",
+                        "tags": [
+                            "X",
+                            "S"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    },
+                    "oat": {
+                        "min_value": -50,
+                        "max_value": 50,
+                        "scalable": true,
+                        "source": "asset",
+                        "tags": [
+                            "W",
+                            "S"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    },
+                    "hvac_1": {
+                        "min_value": null,
+                        "max_value": null,
+                        "scalable": false,
+                        "source": "asset",
+                        "tags": [
+                            "O"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    },
+                    "hvac_2": {
+                        "min_value": null,
+                        "max_value": null,
+                        "scalable": false,
+                        "source": "asset",
+                        "tags": [
+                            "O"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    },
+                    "hvac_3": {
+                        "min_value": null,
+                        "max_value": null,
+                        "scalable": false,
+                        "source": "asset",
+                        "tags": [
+                            "O"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    },
+                    "cool_setpoint": {
+                        "min_value": null,
+                        "max_value": null,
+                        "scalable": false,
+                        "source": "asset",
+                        "tags": [
+                            "W",
+                            "S"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    },
+                    "heat_setpoint": {
+                        "min_value": null,
+                        "max_value": null,
+                        "scalable": false,
+                        "source": "asset",
+                        "tags": [
+                            "W",
+                            "S"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    },
+                    "occupancy": {
+                        "min_value": null,
+                        "max_value": null,
+                        "scalable": false,
+                        "source": "asset",
+                        "tags": [
+                            "W",
+                            "S"
+                        ],
+                        "temporal_knowledge": [
+                            null,
+                            0
+                        ]
+                    }
+                },
+                "memory_dump_freq_cron": "55 23 */3 * *"
+            },
+            "product": "HVAC_TARIFF_COMFORT",
+            "tariff": "ONTARIO_GEN_TOU"
+        }
+    },
+    "assets": {
+        "Agent001": {
+            "asset_type": "commercial building",
+            "core_variables": [
+                "timestamp",
+                "control",
+                "power",
+                "oat"
+            ],
+            "initial_state_dict": {
+                "temperature": [
+                    21.0,
+                    21.0,
+                    21.0
+                ],
+                "hvac": [
+                    0,
+                    0,
+                    0
+                ]
+            },
+            "n_controls": 3,
+            "dt": 5,
+            "control_power_mapping": {
+                "0": 40,
+                "1": 20,
+                "2": 0,
+                "3": 20,
+                "4": 40
+            },
+            "tracked_variables": [
+                "temperature",
+                "hvac",
+                "cool_setpoint",
+                "heat_setpoint",
+                "occupancy"
+            ],
+            "occ_times": [
+                8,
+                18
+            ],
+            "occ_setpoints": [
+                20.0,
+                22.0
+            ],
+            "unocc_setpoints": [
+                16.0,
+                26.0
+            ]
+        }
+    },
+    "agent_save_freq_cron": "0 0 * * *",
+    "directory": "simulations/simple_validation",
+    "geography": {
+        "city": "Toronto"
+    },
+    "seed": 42,
+    "time": {
+        "start_time": "2023-01-01T00:00:00",
+        "end_time": "2023-07-01T00:00:00",
+        "step_size_s": 300
+    }
+}

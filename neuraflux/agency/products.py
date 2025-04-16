@@ -53,8 +53,8 @@ class Product(metaclass=ABCMeta):
 
         # Check if the minute of the day is 5 minutes before the end of a cycle
         cycle_minutes = self.period * 60
-        df[DONE_KEY] = (((minutes_of_day + 5) % cycle_minutes) == 0).astype(bool)
-
+        # df[DONE_KEY] = (((minutes_of_day + 5) % cycle_minutes) == 0).astype(bool)
+        df[DONE_KEY] = (((minutes_of_day + 10) % cycle_minutes) == 0).astype(bool)
         return df
 
     # For products offering additional features in learning process
@@ -72,6 +72,40 @@ class SimpleTariffOptimizationProduct(Product):
         return "Tariff Optimization"
 
 
+class HVACTariffAndComfortProduct(Product):
+    def __init__(self, period: int = 4):
+        super().__init__(period)
+
+    def calculate_rewards(self, df: pd.DataFrame) -> np.ndarray:
+        df = df.copy()
+
+        # Energy
+        mult_factor = 10  # Scale energy-related reward
+        energy_reward = -df[TARIFF_KEY].values * mult_factor
+        reward = energy_reward
+
+        # Comfort
+        temp_cols = [col for col in df.columns if "temperature_" in col]
+        sp_cool = df["cool_setpoint"].values
+        sp_heat = df["heat_setpoint"].values
+        for col in temp_cols:
+            # Calculate discomfort as the absolute deviation from
+            # cooling setpoint if warmer, or heating setpoint if colder
+            # 0 otherwise
+            reward += np.where(
+                df[col].values > sp_cool,
+                -np.square(sp_cool - df[col].values)*10,
+                np.where(
+                    df[col].values < sp_heat, -np.square(sp_heat - df[col].values)*10, 0
+                ),
+            )
+        df[REWARD_KEY] = reward
+        return df[[REWARD_KEY]].values
+
+    def client_facing_name(self):
+        return "HVAC Energy and Comfort Optimization"
+
+
 class DemandResponseProduct(Product):
     def calculate_rewards(self, df: pd.DataFrame) -> np.ndarray:
         df = df.copy()
@@ -85,13 +119,32 @@ class DemandResponseProduct(Product):
         return df[[REWARD_KEY]].values
 
     def get_reward_names(self) -> list[str]:
-        return [REWARD_KEY + "_DR"]
+        return [REWARD_KEY]
 
     def calculate_total_price(self, df: pd.DataFrame) -> np.ndarray:
         return -1 * self.calculate_rewards(df)
 
     def client_facing_name(self) -> str:
         return "Demand Response"
+
+
+class PureDemandResponseProduct(Product):
+    def calculate_rewards(self, df: pd.DataFrame) -> np.ndarray:
+        df = df.copy()
+        df[REWARD_KEY] = -df[ENERGY_KEY].values  # type: ignore
+        df.loc[
+            (df.index.hour < 15) | (df.index.hour >= 19), REWARD_KEY  # type: ignore # noqa: E501
+        ] = 0
+        return df[[REWARD_KEY]].values
+
+    def get_reward_names(self) -> list[str]:
+        return [REWARD_KEY]
+
+    def calculate_total_price(self, df: pd.DataFrame) -> np.ndarray:
+        return -1 * self.calculate_rewards(df)
+
+    def client_facing_name(self) -> str:
+        return "Pure Demand Response"
 
 
 class CAISODynamicPricingProduct(Product):
@@ -235,56 +288,6 @@ class HOEPMarketProduct(Product):
         return "Arbitrage (HOEP Market)"
 
 
-# class HOEPMarketProduct(Product):
-#     def __init__(
-#         self,
-#         price_file_path: str = "datasets/hoep_interpolated_2023.csv",
-#         period: int = 3,
-#     ):
-#         # Reading the dynamic prices from the provided CSV file
-#         self.dynamic_prices_df = pd.read_csv(
-#             price_file_path, index_col=0, parse_dates=True
-#         )
-
-#         # TODO: Update HOEP dataset to begin at 00:00:00, and remove below
-#         self.dynamic_prices_df.index = self.dynamic_prices_df.index - dt.timedelta(
-#             hours=1
-#         )
-
-#         self.period = period
-
-#     def get_price(self, time: dt.datetime) -> float:
-#         # Find the closest time index in the DataFrame to the given time
-#         closest_time = self.dynamic_prices_df.index.get_loc(time)
-#         return self.dynamic_prices_df.iloc[closest_time]["HOEP"]
-
-#     def calculate_rewards(self, df: DataFrame) -> np.ndarray:
-#         # Assuming the DataFrame has a datetime index and an 'energy' column
-#         df = df.copy()
-#         prices = [
-#             self.get_price(time=row.name) * -row[ENERGY_KEY]
-#             for index, row in df.iterrows()
-#         ]
-#         df[REWARD_KEY + "_ENERGY"] = prices
-
-#         # Set the value to be negative penalty if internal energy is 0 and action is 0
-#         if "control_1" in df.columns:
-#             filter = (df["internal_energy"] == 0) & (df["control_1"] == 0)
-#             df.loc[filter, REWARD_KEY + "_ENERGY"] = -2500
-
-#         return df[REWARD_KEY + "_ENERGY"].values
-
-#     def get_reward_names(self) -> list[str]:
-#         reward_names = [REWARD_KEY + "_ENERGY"]
-#         return reward_names
-
-#     def calculate_total_price(self, df: pd.DataFrame) -> np.ndarray:
-#         raise NotImplementedError
-
-#     def client_facing_name(self) -> str:
-#         return "Arbitrage (HOEP Market)"
-
-
 class HVACBuildingProduct(Product):
     def __init__(self, period: int = 2):
         self.period = period
@@ -348,9 +351,6 @@ class HVACBuildingProduct(Product):
             REWARD_KEY + "_ENERGY",
         ]
         return reward_names
-
-    def calculate_total_price(self, df: pd.DataFrame) -> np.ndarray:
-        raise NotImplementedError
 
     def client_facing_name(self) -> str:
         return "Building HVAC Optimization"
@@ -464,11 +464,13 @@ class EvDrTouGhgProduct(Product):
 @unique
 class AvailableProductsEnum(Enum):
     DEMAND_RESPONSE = DemandResponseProduct
+    PURE_DEMAND_RESPONSE = PureDemandResponseProduct
     DYNAMIC_PRICING = CAISODynamicPricingProduct
     EV_DR = EvDrTouGhgProduct
     HVAC_BUILDING = HVACBuildingProduct
     HOEP_MARKET = HOEPMarketProduct
     SIMPLE_TARIFF_OPT = SimpleTariffOptimizationProduct
+    HVAC_TARIFF_COMFORT = HVACTariffAndComfortProduct
 
     @classmethod
     def list_products(cls):

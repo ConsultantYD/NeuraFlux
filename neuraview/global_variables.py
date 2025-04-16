@@ -1,9 +1,3 @@
-from neuraflux.schemas.asset_config import (
-    AssetComponentEnum,
-    AvailableAssetsEnum,
-    AssetComponent,
-)
-
 # Path, Directories and Filenames
 SIMS_ROOT_DIR = "simulations"
 SIM_SUMMARY_FILENAME = "sim_summary.json"
@@ -36,57 +30,12 @@ SELECTED_SIM_DIR_KEY = "sim_dir"
 SELECTED_SIM_SUMMARY_KEY = "sim_summary"
 
 # Constants for UI
-ASSET_COMPONENTS_DICT: dict[AvailableAssetsEnum, dict[AssetComponent:int]] = {
-    AvailableAssetsEnum.COMMERCIAL_BUILDING: {
-        AssetComponentEnum.HVAC_ROOF_TOP_UNIT: 3,
-        AssetComponentEnum.LIGHTING: 18,
-    },
-    AvailableAssetsEnum.ELECTRIC_VEHICLE: {},
-    AvailableAssetsEnum.EV_CHARGER: {},
-    AvailableAssetsEnum.ENERGY_STORAGE: {},
-    AvailableAssetsEnum.RESIDENTIAL_BUILDING: {
-        AssetComponentEnum.DISHWASHER: 1,
-        AssetComponentEnum.HVAC_BASEBOARD: 4,
-        AssetComponentEnum.LIGHTING: 8,
-        AssetComponentEnum.OVEN: 1,
-        AssetComponentEnum.WATER_HEATER: 1,
-    },
-    AvailableAssetsEnum.SOLAR_PANEL: {},
-    AvailableAssetsEnum.WIND_TURBINE: {},
-}
-
-ASSET_DESCRIPTION_DICT: dict[AvailableAssetsEnum, str] = {
-    AvailableAssetsEnum.COMMERCIAL_BUILDING: "From single-story structures to multi-story complexes, hosting offices, retail spaces, and other establishments. Key controllable systems typically include HVAC, lighting, and behind-the-meter assets. The primary stakeholders impacted and served by this solution are tenants, facility managers, and building owners.",
-    AvailableAssetsEnum.ELECTRIC_VEHICLE: "Powered by electric motors and rechargeable batteries, electric vehicles provide an eco-friendly alternative to traditional gasoline-powered cars, offering reduced emissions and sustainable transportation.",
-    AvailableAssetsEnum.EV_CHARGER: "Devices designed to supply electrical energy for recharging electric vehicle batteries, these chargers come in various types and speeds to accommodate different charging needs.",
-    AvailableAssetsEnum.ENERGY_STORAGE: "Systems that capture and store energy for later use provide a reliable supply of electricity during power outages or when demand exceeds supply, ensuring consistent energy availability.",
-    AvailableAssetsEnum.RESIDENTIAL_BUILDING: "Designed to provide comfort and shelter, residential buildings range from single-family homes to apartment complexes, serving as housing structures for individuals or families.",
-    AvailableAssetsEnum.SOLAR_PANEL: "Converting sunlight into electricity, solar panels use photovoltaic cells for renewable energy generation, commonly installed on rooftops of residential and commercial properties.",
-    AvailableAssetsEnum.WIND_TURBINE: "Machines that convert the kinetic energy of wind into electrical power, wind turbines consist of blades, a rotor, and a generator to produce renewable energy efficiently.",
-}
-
-ASSET_INTERNAL_COMPONENTS_DICT: dict[AvailableAssetsEnum, dict] = {
-    AvailableAssetsEnum.COMMERCIAL_BUILDING: {
-        "Component": ["Air-Handling Unit (AHU)", "Variable Air-Volume (VAV)", "Lights"],
-        "Count": [10, 32, 256],
-        "Type": ["HVAC", "HVAC", "Lighting"],
-        "Controllable": [True, True, True],
-        "% Total Elec. ⚡️": [30, 10, 20],
-        "% Total Gas 🔥": [80, 0, 0],
-    },
-    AvailableAssetsEnum.ELECTRIC_VEHICLE: {},
-    AvailableAssetsEnum.EV_CHARGER: {},
-    AvailableAssetsEnum.ENERGY_STORAGE: {},
-    AvailableAssetsEnum.RESIDENTIAL_BUILDING: {
-        "Component": ["Heat Pump", "Baseboard", "Lights"],
-        "Count": [2, 6, 8],
-        "Type": ["HVAC", "HVAC", "Lighting"],
-        "Controllable": [True, True, False],
-        "% Total Elec. ⚡️": [20, 50, 10],
-        "% Total Gas 🔥": [0, 0, 0],
-    },
-    AvailableAssetsEnum.SOLAR_PANEL: {},
-    AvailableAssetsEnum.WIND_TURBINE: {},
+ASSET_DESCRIPTION_DICT: dict[str, str] = {
+    "Commercial Building": "From single-story structures to multi-story complexes, hosting offices, retail spaces, and other establishments. Key controllable systems typically include HVAC, lighting, and behind-the-meter assets. The primary stakeholders impacted and served by this solution are tenants, facility managers, and building owners.",
+    "Electric Vehicle": "Powered by electric motors and rechargeable batteries, electric vehicles provide an eco-friendly alternative to traditional gasoline-powered cars, offering reduced emissions and sustainable transportation.",
+    "EV Charger": "Devices designed to supply electrical energy for recharging electric vehicle batteries, these chargers come in various types and speeds to accommodate different charging needs.",
+    "Energy Storage": "Systems that capture and store energy for later use provide a reliable supply of electricity during power outages or when demand exceeds supply, ensuring consistent energy availability.",
+    "Residential Building": "Designed to provide comfort and shelter, residential buildings range from single-family homes to apartment complexes, serving as housing structures for individuals or families.",
 }
 
 SANITIZED_PRODUCTS_MAPPING: dict[str, str] = {

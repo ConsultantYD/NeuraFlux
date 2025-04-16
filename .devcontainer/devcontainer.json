@@ -1,0 +1,33 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/python
+{
+	"name": "Python 3",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": ".."
+    },
+	"customizations": {
+        "vscode": {
+            "settings": {
+                "python.defaultInterpreterPath": "/usr/local/bin/python",
+                "editor.formatOnSave": true,
+                "[python]": {
+                    "editor.defaultFormatter": "astral-sh.ruff",
+                    "editor.formatOnSave": true,
+                    "editor.codeActionsOnSave": {
+                        "source.fixAll": true,
+                        "source.organizeImports": true
+                    }
+                },
+                "ruff.enable": true,
+                "ruff.format.enable": true,
+                "terminal.integrated.defaultProfile.linux": "bash"
+            },
+            "extensions": [
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "astral-sh.ruff"
+            ]
+        }
+    },
+}

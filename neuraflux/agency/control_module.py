@@ -7,6 +7,8 @@ from typing import Any
 import dill
 import numpy as np
 import pandas as pd
+import tensorflow as tf
+import gc
 
 from neuraflux.agency.control_utils import (
     convert_data_to_experience,
@@ -23,17 +25,13 @@ from neuraflux.agency.rl_training import (
 from neuraflux.global_variables import (
     FILE_REAL_REPLAY_BUFFER,
     FILE_SIM_REPLAY_BUFFER,
-    LOG_SIM_T_KEY,
     LOG_ENTITY_KEY,
-    LOG_METHOD_KEY,
     LOG_MESSAGE_KEY,
+    LOG_METHOD_KEY,
+    LOG_SIM_T_KEY,
     TABLE_DQN_TRAINING,
 )
 from neuraflux.schemas.agency import RLConfig
-from neuraflux.time_ref import convert_datetime_to_unix
-from neuraflux.utils_sql import (
-    add_dataframe_to_table,
-)
 
 
 class ControlModule(Module):
@@ -55,6 +53,8 @@ class ControlModule(Module):
         action_size: int,
         simulation: bool = False,
     ) -> None:
+        print("Here is the cache registry")
+        print(self.cache_registry)
         # Log the start of the training process
         log.debug(
             {
@@ -81,7 +81,7 @@ class ControlModule(Module):
             q_estimator = self.get_model_from_registry(uid, available_models[-1])
 
         model_name = index.strftime("%y_%m_%d__%H_%M")
-        for target_iterator in range(rl_config.n_target_updates):
+        for target_iterator in range(rl_config.n_target_iterators):
             q_estimator, buffer, err_list, times_dict = simple_training_loop(
                 replay_buffer_real=buffer,
                 q_estimator=q_estimator,
@@ -94,38 +94,38 @@ class ControlModule(Module):
             q_estimator.update_target_model()
 
             # Store training details in table
-            training_df = pd.DataFrame(
-                {
-                    "td_rmse": err_list,
-                    "training_duration": times_dict["training"],
-                    "batch_sampling_duration": times_dict["batch_sampling"],
-                    "global_td_errors_calculation_duration": times_dict[
-                        "global_td_errors_calculation"
-                    ],
-                    "td_error_PER_update_duration": times_dict["td_error_per_update"],
-                }
-            )
-            training_df["training_timestamp"] = convert_datetime_to_unix(index)
-            training_df["model_name"] = model_name
-            training_df["target_iterator"] = target_iterator
-            training_df["experience_sampling_size"] = rl_config.experience_sampling_size
-            training_df["n_sampling_iters"] = rl_config.n_sampling_iters
-            training_df["learning_rate"] = rl_config.learning_rate
-            training_df["n_fit_epochs"] = rl_config.n_fit_epochs
-            training_df["tf_batch_size"] = rl_config.tf_batch_size
-            training_df["uid"] = uid
-            training_df["is_simulation"] = simulation
-            db_connection = self.create_connection_to_agent_db(uid)
-            table = (
-                "simulated_" + TABLE_DQN_TRAINING if simulation else TABLE_DQN_TRAINING
-            )
-            add_dataframe_to_table(
-                training_df,
-                db_connection,
-                table,
-                index_col=None,
-                use_index=False,
-            )
+            # training_df = pd.DataFrame(
+            #     {
+            #         "td_rmse": err_list,
+            #         "training_duration": times_dict["training"],
+            #         "batch_sampling_duration": times_dict["batch_sampling"],
+            #         "global_td_errors_calculation_duration": times_dict[
+            #             "global_td_errors_calculation"
+            #         ],
+            #         "td_error_PER_update_duration": times_dict["td_error_per_update"],
+            #     }
+            # )
+            # training_df["training_timestamp"] = convert_datetime_to_unix(index)
+            # training_df["model_name"] = model_name
+            # training_df["target_iterator"] = target_iterator
+            # training_df["experience_sampling_size"] = rl_config.experience_sampling_size
+            # training_df["n_sampling_iters"] = rl_config.n_sampling_iters
+            # training_df["learning_rate"] = rl_config.learning_rate
+            # training_df["n_fit_epochs"] = rl_config.n_fit_epochs
+            # training_df["tf_batch_size"] = rl_config.tf_batch_size
+            # training_df["uid"] = uid
+            # training_df["is_simulation"] = simulation
+            # db_connection = self.create_connection_to_agent_db(uid)
+            # table = (
+            #     "simulated_" + TABLE_DQN_TRAINING if simulation else TABLE_DQN_TRAINING
+            # )
+            # add_dataframe_to_table(
+            #     training_df,
+            #     db_connection,
+            #     table,
+            #     index_col=None,
+            #     use_index=False,
+            # )
 
         # Make lite model available
         q_estimator.generate_tflite_model()
@@ -157,14 +157,11 @@ class ControlModule(Module):
         )
 
         # Delete unused variables and force garbage collection
-        del (
-            buffer,
-            q_estimator,
-            available_models,
-            err_list,
-            training_df,
-            db_connection,
-        )
+        del (buffer, q_estimator, available_models, err_list)
+
+        # After you're finished with training and using the model
+        tf.keras.backend.clear_session()
+        gc.collect()
 
     def get_rl_training_data_table(self, uid: str) -> pd.DataFrame:
         # db_connection = self.create_connection_to_agent_db(uid)
@@ -190,11 +187,13 @@ class ControlModule(Module):
     # -----------------------------------------------------------------------
     # Q-FACTORS
     # -----------------------------------------------------------------------
+
     def get_raw_q_factors(
         self,
         uid: str,
         scaled_data: pd.DataFrame,
         state_columns: list[str],
+        action_size: int,
         rl_config: RLConfig,
         model_name: None | str = None,
         use_lite_inference: bool = False,
@@ -224,6 +223,7 @@ class ControlModule(Module):
         data: pd.DataFrame,
         scaled_data: pd.DataFrame,
         state_columns: list[str],
+        action_size: int,
         rl_config: RLConfig,
         model_name: None | str = None,
     ) -> None:
@@ -233,16 +233,15 @@ class ControlModule(Module):
 
         seq_len = rl_config.history_length
         q_factors = self.get_raw_q_factors(
-            uid, scaled_data, state_columns, rl_config, model_name
+            uid, scaled_data, state_columns, action_size, rl_config, model_name
         )
 
         # Add Q-factors to the dataframe and return
         # NOTE: q_factors are a list (n_controllers len) with elements of
         # dimension (seq_len, n_actions, n_rewards)
-        for c, q_vals in enumerate(q_factors):
-            for r in range(q_vals.shape[1]):
-                q_cols = [f"Q{r+1}_C{c+1}_U{i+1}" for i in range(q_vals.shape[2])]
-                df.loc[df.index.values[seq_len - 1 :], q_cols] = q_vals[:, r, :]
+        for q_vals in q_factors:
+            q_cols = [f"Q1_C1_U{i + 1}" for i in range(q_vals.shape[1])]
+            df.loc[df.index.values[seq_len - 1 :], q_cols] = q_vals
 
         # Delete unused variables and force garbage collection
         del data, scaled_data, q_factors, rl_config
@@ -263,7 +262,8 @@ class ControlModule(Module):
         else:
             replay_buffer = ReplayBuffer(
                 max_len=rl_config.replay_buffer_size,
-                prioritized_replay_alpha=rl_config.prioritized_replay_alpha,
+                # prioritized_replay_alpha=rl_config.prioritized_replay_alpha,
+                prioritized_replay_alpha=0.6,
             )
         return replay_buffer
 
@@ -284,6 +284,7 @@ class ControlModule(Module):
         data: pd.DataFrame,
         rl_config: RLConfig,
         state_columns: list[str],
+        action_size: int,
         control_columns: list[str],
         reward_columns: list[str],
         simulation: bool = False,
@@ -304,7 +305,7 @@ class ControlModule(Module):
                 LOG_SIM_T_KEY: None,
                 LOG_ENTITY_KEY: "Control Module",
                 LOG_METHOD_KEY: "push_data_to_replay_buffer",
-                LOG_MESSAGE_KEY: f"Input data example: {data.iloc[0:seq_len+1]} \n"
+                LOG_MESSAGE_KEY: f"Input data example: {data.iloc[0 : seq_len + 1]} \n"
                 f"Exp s: {experience_batch[0][0]} \n"
                 f"Exp a: {experience_batch[1][0]} \n"
                 f"Exp r: {experience_batch[2][0]} \n"
@@ -370,6 +371,8 @@ class ControlModule(Module):
         # Store in cache
         if uid not in self.cache_registry:
             self.cache_registry[uid] = {}
+        # Keep only latest model in cache
+        self.cache_registry[uid] = {}
         self.cache_registry[uid][model_name] = q_estimator
 
         # Save locally

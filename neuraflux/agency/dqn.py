@@ -23,10 +23,10 @@ class DDQNPREstimator:
     state_size: int
     action_size: int
     sequence_len: int
-    n_rewards: int = 1
     n_controllers: int = 1
+    n_rewards: int = 1
     learning_rate: float = 2.5e-4
-    discount_factor: float = 0.99
+    discount_factor: float = 1.0
 
     def __post_init__(self) -> None:
         self.model = self._build_model()
@@ -213,61 +213,74 @@ class DDQNPREstimator:
         n_fit_epochs: int = 5,
         batch_size: int = 32,
     ):
-        # Unpack the experience tuple
+        # Unpack the experience tuple: now rewards and actions are updated accordingly.
         (states, actions, rewards, next_states, dones, errors) = experience
         batch_size = states.shape[0]
 
-        # Dimensions of each entry in the experience tuple
-        # states is (batch_size, sequence_len, state_size)
-        # actions was (batch_size,), is now (batch_size, n_controllers)
-        # rewards was (batch_size,), is now (batch_size, n_rewards)
-        # next_states is (batch_size, sequence_len, state_size)
+        # Ensure actions is at least 2D (batch_size, n_controllers)
+        if actions.ndim == 1:
+            # Convert shape (batch_size,) to (batch_size, 1) for a single controller scenario.
+            actions = np.expand_dims(actions, axis=1)
 
-        # Copy the states to avoid modifying the original
+        # Optionally, if rewards could be 1D and you expect rewards to be (batch_size, n_rewards),
+        # you might do a similar check:
+        if rewards.ndim == 1:
+            rewards = np.expand_dims(rewards, axis=1)
+
+        # Copy the states to avoid modifying the original data.
         states = states.copy()
 
-        # Calculate the necessary targets
-        # was (batch_size, n_actions), is now [(batch_size, n_rewards, n_actions), ...]
-        # where the len of the list is n_controllers)
+        # Convert dones to float for later computation.
+        dones = dones.astype(float)
+
+        # Calculate the Q-value targets.
+        # Now, forward_pass returns a list of outputs, one per controller.
         targets = self.forward_pass(states)
         targets_next = self.forward_pass(next_states)
         targets_val = self.forward_pass(next_states, target_model=True)
 
-        for target, target_next, target_val in zip(targets, targets_next, targets_val):
+        # Loop through each controller's output.
+        # Using enumerate gives us the controller index, which we use to index the actions.
+        for controller_idx, (target, target_next, target_val) in enumerate(
+            zip(targets, targets_next, targets_val)
+        ):
+            # Iterate over the reward dimensions.
             for r in range(self.n_rewards):
                 for i in range(batch_size):
+                    # Select the action with the maximum Q-value for the next state.
                     max_a = np.argmax(target_next[i][r])
-
                     term_1 = rewards[i][r]
                     term_2 = (
                         self.discount_factor * target_val[i][r][max_a] * (1 - dones[i])
                     )
-                    target[i][r][actions[i]] = term_1 + term_2
+                    # Update the target for the current controller using its corresponding action.
+                    target[i][r][actions[i][controller_idx]] = term_1 + term_2
 
-        # Log the first sample to confirm the data is correct
+        # Log some sample data to check the internal state.
         log.debug(
             {
                 LOG_SIM_T_KEY: None,
                 LOG_ENTITY_KEY: "DDQNPREstimator",
                 LOG_METHOD_KEY: "train",
-                LOG_MESSAGE_KEY: f"First state: {states[0]} \n"
-                f"First Q-factors: {self.forward_pass(states)[0][0]} \n"
-                f"First reward: {rewards[0]} \n"
-                f"First action: {actions[0]} \n"
-                f"First max a (r=1): {np.argmax(targets_next[0][0])} \n"
-                f"First target: {targets[0][0]} \n"
-                f"First target_next: {targets_next[0][0]} \n"
-                f"First target_val: {targets_val[0][0]} \n",
+                LOG_MESSAGE_KEY: (
+                    f"First state: {states[0]} \n"
+                    f"First Q-factors: {self.forward_pass(states)[0][0]} \n"
+                    f"First reward: {rewards[0]} \n"
+                    f"First actions: {actions[0]} \n"
+                    f"First max a (controller 0, r=0): {np.argmax(targets_next[0][0])} \n"
+                    f"First target: {targets[0][0]} \n"
+                    f"First target_next: {targets_next[0][0]} \n"
+                    f"First target_val: {targets_val[0][0]} \n"
+                ),
             }
         )
 
-        # Compute importance sampling weights
+        # Compute the importance sampling weights.
         importance_sampling_weights = np.power(replay_buffer_len * priorities, -beta)
         importance_sampling_weights /= importance_sampling_weights.max()
 
-        # Compile model TODO: Add term if we need to reduce LR
-        # if not self.model.compiled: # TF >=2.16
-        if not self.model._is_compiled:  # TF <2.16
+        # Ensure the model is compiled
+        if not self.model._is_compiled:  # For TensorFlow versions <2.16
             self.model.compile(
                 optimizer=tf.keras.optimizers.Adam(
                     learning_rate=learning_rate,
@@ -275,24 +288,19 @@ class DDQNPREstimator:
                 ),
                 loss="huber",
             )
-        # tf.keras.backend.set_value(self.model.optimizer.learning_rate, learning_rate)
 
-        # print(
-        #    f"    Fitting DQN for {n_fit_epochs} epochs with learning rate {learning_rate}"
-        # )
+        # Finalize the default graph and fit the model.
         tf.compat.v1.get_default_graph().finalize()
         self.model.fit(
-            # tf.convert_to_tensor(states),
-            # tf.convert_to_tensor(target),
             states,
-            target,
+            targets,
             batch_size=batch_size,
             verbose=0,
             sample_weight=importance_sampling_weights,
             epochs=n_fit_epochs,
         )
 
-        # Delete unused variables and force garbage collection
+        # Delete unused variables and force garbage collection.
         del (
             states,
             actions,
@@ -356,6 +364,8 @@ class DDQNPREstimator:
             internal_variables["state_size"],
             internal_variables["action_size"],
             internal_variables["sequence_len"],
+            internal_variables["n_controllers"],
+            internal_variables["n_rewards"],
         )
         self.__dict__.update(internal_variables)
         self.model = tf.keras.models.load_model(model_file)
@@ -404,7 +414,6 @@ class DDQNPREstimator:
         # Clean up the model directory.
         rmtree(MODEL_DIR)
 
-
     def _build_model(self) -> Model:
         # Clear the session to free up memory
         tf.keras.backend.clear_session()
@@ -413,9 +422,9 @@ class DDQNPREstimator:
 
         # Shared layers
         x = tf.keras.layers.LSTM(
-            128,
+            256,
             return_sequences=False,
-            kernel_regularizer=tf.keras.regularizers.l2(0.01),
+            # kernel_regularizer=tf.keras.regularizers.l2(0.01),
         )(input_layer)
 
         # Output layer for all actions and rewards
@@ -427,7 +436,7 @@ class DDQNPREstimator:
                 kernel_initializer=tf.keras.initializers.VarianceScaling(
                     scale=0.01, mode="fan_avg", distribution="uniform"
                 ),
-                kernel_regularizer=tf.keras.regularizers.l2(0.01),
+                # kernel_regularizer=tf.keras.regularizers.l2(0.01),
             )(x)
             # Reshape to [number of rewards, number of actions]
             output_reshaped = tf.keras.layers.Reshape(

@@ -1,5 +1,3 @@
-from copy import copy
-
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -9,8 +7,12 @@ from neuraflux.schemas.agency import RLConfig
 
 
 def softmax(q_values, tau=1.0):
-    """
-    Computes the softmax of the given Q-values.
+    """Computes the softmax of q_values with temperature tau.
+    Args:
+        q_values (np.ndarray): Q-values to compute softmax for.
+        tau (float): Temperature parameter.
+    Returns:
+        np.ndarray: Softmax probabilities.
     """
     q_values_adj = q_values - np.max(q_values)  # for numerical stability
     exp_values = np.exp(q_values_adj / tau)
@@ -18,11 +20,48 @@ def softmax(q_values, tau=1.0):
     return probabilities
 
 
+def get_full_state_signals_from_rl_config(rl_config: RLConfig) -> list[str]:
+    """Augment the state signals with time features and other options
+    if user selected so.
+
+    Args:
+        rl_config (RLConfig): Agent's control reinforcement learning config.
+    Returns:
+        list[str]: List of augmented state signals.
+    """
+    state_signals = rl_config.state_signals.copy()
+
+    # Extract boolean time feature options
+    tf_hourly = rl_config.add_hourly_time_features_to_state
+    tf_daily = rl_config.add_daily_time_features_to_state
+    tf_weekly = rl_config.add_weekly_time_features_to_state
+    tf_monthly = rl_config.add_monthly_time_features_to_state
+
+    # Add time features to state signals if necessary
+    if tf_hourly:
+        state_signals += ["tf_cos_h", "tf_sin_h"]
+    if tf_daily:
+        state_signals += ["tf_cos_d", "tf_sin_d"]
+    if tf_weekly:
+        state_signals += ["tf_cos_w", "tf_sin_w"]
+    if tf_monthly:
+        state_signals += ["tf_cos_m", "tf_sin_m"]
+
+    return state_signals
+
+
 def convert_data_to_state(
     data: pd.DataFrame, state_columns: list[str], seq_len: int
 ) -> np.ndarray:
     """Converts a dataframe of data from an asset observation
     dataframe to numpy states.
+
+    Args:
+        data (pd.DataFrame): Dataframe containing the data.
+        state_columns (list[str]): List of state columns.
+        seq_len (int): Length of the sequence.
+    Returns:
+        np.ndarray: Numpy array of states.
     """
     data = data.copy()
     states = data[state_columns]
@@ -30,11 +69,9 @@ def convert_data_to_state(
     old_states = states
     states = states.dropna()
     if states.shape[0] != states_len_before:
-        print("Rows were removed !")
-        print("before")
-        print(old_states)
-        print("after")
-        print(states)
+        raise ValueError(
+            f"NaN or NA values found in the data. Please check the data. \n {old_states}"
+        )
 
     states = states.values
     states = np.asarray(states).astype("float32")
@@ -61,16 +98,20 @@ def convert_data_to_experience(
     state_columns: list[str],
     control_columns: list[str],
     reward_columns: list[str],
+    done_column: str = DONE_KEY,
 ) -> tuple:
     """Converts a dataframe of data from an asset observation
     dataframe to a zip of experience tuples.
 
     Args:
-        data (pd.DataFrame): Dataframe of data.
+        data (pd.DataFrame): Dataframe containing the data.
         seq_len (int): Length of the sequence.
         state_columns (list[str]): List of state columns.
         control_columns (list[str]): List of control columns.
         reward_columns (list[str]): List of reward columns.
+        done_column (str): Column name for done flag.
+    Returns:
+        tuple: Tuple containing the experience samples.
     """
     data = data.copy()
     # Convert the dataframe to its NumPy representations
@@ -80,7 +121,7 @@ def convert_data_to_experience(
     rewards = data[reward_columns].values[seq_len - 1 : -1].astype(float)
     next_states = convert_data_to_state(data.iloc[1:], state_columns, seq_len)
     dones = (
-        data[[DONE_KEY]]
+        data[[done_column]]
         .values[seq_len - 1 : -1]
         .reshape(
             -1,
@@ -104,39 +145,3 @@ def convert_data_to_experience(
     experience = (states, actions, rewards, next_states, dones, td_errors)
 
     return experience
-
-
-def get_full_state_signals_from_rl_config(
-    rl_config: RLConfig, state_columns: list[str]
-) -> list[str]:
-    """Augment the state signals with time features and other options
-    if user selected so.
-
-    Args:
-        rl_config (RLConfig): Agent's control reinforcement learning config.
-        state_columns (list[str]): List of state signals.
-    Returns:
-        list[str]: List of augmented state signals.
-    """
-
-    if rl_config.state_signals is not None:
-        state_columns = rl_config.state_signals
-    state_signals = copy(state_columns)
-
-    # Extract boolean time feature options
-    tf_hourly = rl_config.add_hourly_time_features_to_state
-    tf_daily = rl_config.add_daily_time_features_to_state
-    tf_weekly = rl_config.add_weekly_time_features_to_state
-    tf_monthly = rl_config.add_monthly_time_features_to_state
-
-    # Add time features to state signals if necessary
-    if tf_hourly:
-        state_signals += ["tf_cos_h", "tf_sin_h"]
-    if tf_daily:
-        state_signals += ["tf_cos_d", "tf_sin_d"]
-    if tf_weekly:
-        state_signals += ["tf_cos_w", "tf_sin_w"]
-    if tf_monthly:
-        state_signals += ["tf_cos_m", "tf_sin_m"]
-
-    return state_signals

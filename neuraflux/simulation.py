@@ -1,6 +1,4 @@
 import datetime as dt
-import json
-import logging as log
 import os
 import random
 import shutil
@@ -12,28 +10,19 @@ import tensorflow as tf
 from neuraflux.agency.agent import Agent
 from neuraflux.agency.control_module import ControlModule
 from neuraflux.agency.data_module import DataModule
-from neuraflux.assets.building import Building
-from neuraflux.assets.electric_vehicle import ElectricVehicle
-from neuraflux.assets.energy_storage import EnergyStorage
+from neuraflux.assets.factory import AvailableAssetsEnum
+from neuraflux.geography import CityEnum
 from neuraflux.global_variables import (
     CONTROL_KEY,
     DT_STR_FORMAT,
-    LOG_ENTITY_KEY,
-    LOG_MESSAGE_KEY,
-    LOG_METHOD_KEY,
-    LOG_SIM_T_KEY,
-    LOGGING_DB_NAME,
+    OAT_KEY,
 )
 from neuraflux.local_typing import AssetType
-from neuraflux.logging_utils import StructuredLogHandler
-from neuraflux.schemas.asset_config import (
-    BuildingConfig,
-    ElectricVehicleConfig,
-    EnergyStorageConfig,
-)
+from neuraflux.schemas.agency import AgentConfig
 from neuraflux.schemas.simulation import SimulationConfig
 from neuraflux.time_ref import TimeRef
 from neuraflux.weather import Weather
+from neuraflux.agency.utils_data import cron_matches
 
 
 class Simulation:
@@ -43,109 +32,98 @@ class Simulation:
         self.directory = simulation_config.directory
 
         # Create simulation directory if it does not exist
-        if not os.path.isdir(self.directory):
-            os.makedirs(self.directory)
-
-        # Initialize logging and related configurations
-        log_dir = self.config.directory
-        if os.path.isfile(os.path.join(log_dir, LOGGING_DB_NAME)):
-            os.remove(os.path.join(log_dir, LOGGING_DB_NAME))
-        handler = StructuredLogHandler(log_dir)
-        log.getLogger().addHandler(handler)
-        log.getLogger().setLevel(log.DEBUG)
+        os.makedirs(self.directory, exist_ok=True)
 
         # Fix seeds for reproducibility
         self._fix_seeds(self.config.seed)
 
-        # Temporal evolution initialization
-        self.start_time = dt.datetime.strptime(
+        # ---------------------------------------------------
+        # - ENVIRONMENT
+        # ---------------------------------------------------
+        # Time-related components initialization
+        self.sim_start_time = dt.datetime.strptime(
             self.config.time.start_time,
             DT_STR_FORMAT,
         )
-        self.end_time = dt.datetime.strptime(
+        self.sim_end_time = dt.datetime.strptime(
             self.config.time.end_time,
             DT_STR_FORMAT,
         )
-        self._initialize_time()
+        self.time_ref = self._initialize_time_reference(
+            start_time=self.sim_start_time, step_size_s=self.config.time.step_size_s
+        )
+        self.time_info = self.time_ref.get_time_info()
+        self.t = self.time_info.t
 
-        # Weather initialization
-        self.weather_ref = Weather(
+        # Weather
+        self.weather_ref = self._initialize_weather(
             city=self.config.geography.city, db_dir=self.directory
         )
-        t = self.time_info.t
-        self.weather_info = self.weather_ref.get_weather_info_at_time(t)
+        self.weather_info = self.weather_ref.get_weather_info_at_time(self.t)
+        self.oat = self.weather_info.temperature
 
-        # Initialize assets and comparative shadow assets
-        self.assets = self._initialize_assets()
-        self.shadow_assets = self._initialize_shadow_assets()
+        # ---------------------------------------------------
+        # - ASSETS
+        # ---------------------------------------------------
+        # Initialize assets controlled by agents
+        self.assets = self._initialize_assets(
+            t=self.t,
+            oat=self.weather_info.temperature,
+            assets_configs_dict=self.config.assets,
+        )
 
-        # Initialize agency modules
-        self._initialize_modules()
+        # Initialize comparative 'shadow' assets (copy of real assets)
+        self.shadow_assets = self._initialize_shadow_assets(
+            real_assets_dict=self.assets,
+        )
 
+        # ---------------------------------------------------
+        # - AGENTS AND RELATED COMPONENTS
+        # ---------------------------------------------------
         # Initialize agents
-        self._initialize_agents()
-
-    def _fix_seeds(self, seed_value: int) -> None:
-        np.random.seed(seed_value)
-        random.seed(seed_value)
-        tf.random.set_seed(seed_value)
+        self.agents = self._initialize_agents(
+            agent_configs_dict=self.config.agents,
+            directory=self.directory,
+            time_info=self.time_info,
+            assets=self.assets,
+            shadow_assets=self.shadow_assets,
+        )
 
     def run(self) -> None:
         # Save simulation summary before starting
-        self.sim_summary = {
-            "time start": self.start_time.strftime(DT_STR_FORMAT),
-            "time end": self.end_time.strftime(DT_STR_FORMAT),
-            "current time": self.time_info.t.strftime(DT_STR_FORMAT),
-        }
-        with open(os.path.join(self.directory, "sim_summary.json"), "w") as f:
-            json.dump(self.sim_summary, f, indent=4)
+        # self.sim_summary = {
+        #     "time start": self.start_time.strftime(DT_STR_FORMAT),
+        #     "time end": self.end_time.strftime(DT_STR_FORMAT),
+        #     "current time": self.time_info.t.strftime(DT_STR_FORMAT),
+        # }
+        # with open(os.path.join(self.directory, "sim_summary.json"), "w") as f:
+        #     json.dump(self.sim_summary, f, indent=4)
 
-        # Save configuration to directory as well (can be reproduced)
-        with open(os.path.join(self.directory, "config.json"), "w") as f:
-            json.dump(self.config.model_dump(), f, indent=4)
+        # # Save configuration to directory as well (can be reproduced)
+        # with open(os.path.join(self.directory, "config.json"), "w") as f:
+        #     json.dump(self.config.model_dump(), f, indent=4)
 
-        while self.time_info.t <= self.end_time:  # Main time loop
-            self.sim_summary["current time"] = self.time_info.t.strftime(DT_STR_FORMAT)
-            with open(os.path.join(self.directory, "sim_summary.json"), "w") as f:
-                json.dump(self.sim_summary, f, indent=4)
-
-            # Calculate elapsed time in minutes since simulation start
-            delta_since_start = self.time_ref.get_time_delta_since_start()
-            elapsed_minutes = delta_since_start.total_seconds() / 60
-
-            # Loop over agents
+        # Main simulation
+        while self.time_info.t < self.sim_end_time:
+            # ---------------------------------------------------
+            # - AGENTS EXECUTION
+            # ---------------------------------------------------
+            # Main agent action loop
             agents_controls = {}
             for uid, agent in self.agents.items():
+                # Update agent time referential info, and run it
                 agent.update_time_info(self.time_info)
-                agent.update_weather_info(self.weather_info)
+                agents_controls[uid] = agent.run()
 
-                # Sample data from the asset associated to the agent
-                agent.asset_data_collection()
-
-                # Get agent controls
-                control_dict = agent.get_controls(store_controls=True)
-                agents_controls[uid] = (
-                    None if control_dict is None else list(control_dict.values())
-                )
-
-            # Update simulation time
+            # Increment simulation by one time step
+            # NOTE: Increment is done here to allow agents to run on initial state
             self.time_ref.increment_time()
 
-            # Update time and weather info
+            # Update time and weather info for simulation
             self.time_info = self.time_ref.get_time_info()
-            self.weather_info = self.weather_ref.get_weather_info_at_time(
-                self.time_info.t
-            )
-
-            # Time info
-            log.info(
-                {
-                    LOG_SIM_T_KEY: self.time_info.t,
-                    LOG_ENTITY_KEY: "Simulation",
-                    LOG_METHOD_KEY: "run",
-                    LOG_MESSAGE_KEY: f"~~~~~~~~~~~~~~~~ {self.time_info.t} ~~~~~~~~~~~~~~~~",
-                }
-            )
+            self.t = self.time_info.t
+            self.weather_info = self.weather_ref.get_weather_info_at_time(self.t)
+            self.oat = self.weather_info.temperature
 
             # Loop over assets
             for uid, agent in self.agents.items():
@@ -156,132 +134,132 @@ class Simulation:
                 if agents_controls[uid] is not None:
                     asset.step(
                         agents_controls[uid],
-                        self.time_info.t,
-                        self.weather_info.temperature,
+                        self.t,
+                        self.oat,
                     )
+                # Use default asset policy if no agent control specified
                 else:
-                    asset.auto_step(self.time_info.t, self.weather_info.temperature)
+                    asset.auto_step(self.t, self.oat)
 
                 # Keep shadow asset in sync with the real asset for comparison
-                shadow_control = shadow_asset.get_auto_control(
-                    self.time_info.t, self.weather_info.temperature
-                )
+                shadow_control = shadow_asset.get_auto_control(self.t, self.oat)
                 shadow_control_dict = {}
                 for c in range(len(shadow_control)):
                     control_key = CONTROL_KEY + "_" + str(c + 1)
                     shadow_control_dict[control_key] = shadow_control[c].value
-                agent._push_control_data_to_db(
-                    shadow_control_dict, self.time_info.t, shadow_asset=True
-                )
-                shadow_asset.step(
-                    shadow_control, self.time_info.t, self.weather_info.temperature
-                )
+                shadow_asset.step(shadow_control, self.t, self.oat)
 
-            # Agent update/training loop
-            if elapsed_minutes % (60 * 24 * 7) == 0 and elapsed_minutes != 0:
-                for uid, agent in self.agents.items():
-                    reward = agent.get_reward_data()
-                    # Print only last 24h
-                    reward_last_24h = reward.iloc[-288:]
-                    print(
-                        f"Agent {uid} reward (sum|mean|max): {round(reward_last_24h.sum(axis=0).iloc[0],4)}|{round(reward_last_24h.mean().iloc[0],4)}|{round(reward_last_24h.max().iloc[0],4)}"
-                    )
-                    time_train_starts = dt.datetime.now(dt.UTC)
-                    agent.rl_training()
-                    time_train_ends = dt.datetime.now(dt.UTC)
-                    print(
-                        f"Real Training time (s): {(time_train_ends - time_train_starts).total_seconds()}"
-                    )
-
-            # Simulated agent training loop
-            if (
-                elapsed_minutes % (60 * 24 * 1) == 0
-                and elapsed_minutes != 0
-                and elapsed_minutes >= 60 * 24 * 7
+            # Save agent's full data to disk when requested
+            if cron_matches(
+                self.time_info.t,
+                self.config.agent_save_freq_cron,
             ):
-                print("Simulated training loop")
-                time_train_starts = dt.datetime.now(dt.UTC)
-                n_samples = 100
-                if elapsed_minutes == 60 * 24 * 7:
-                    n_samples = 700
+                # Save agents' data to disk
                 for uid, agent in self.agents.items():
-                    agent.simulated_rl_training(n_samples=n_samples)
-                time_train_ends = dt.datetime.now(dt.UTC)
-                print(
-                    f"   Sim Training time (s): {(time_train_ends - time_train_starts).total_seconds()}"
-                )
+                    agent_directory = os.path.join(
+                        self.directory,
+                        uid,
+                    )
+                    agent.to_file(directory=agent_directory)
 
-    def save(self) -> None:
-        raise NotImplementedError
+        for uid, agent in self.agents.items():
+            print(agent.get_data())
 
-    def load(self, sim_dir=None) -> None:
-        raise NotImplementedError
+    def _fix_seeds(self, seed_value: int) -> None:
+        """
+        Fixes the random seed for reproducibility. Covers numpy, random, and TensorFlow.
+        Args:
+            seed_value (int): The seed value to set for random number generation.
+        """
+        np.random.seed(seed_value)
+        random.seed(seed_value)
+        tf.random.set_seed(seed_value)
 
-    @classmethod
-    def from_directory(cls, sim_dir: str) -> None:
-        raise NotImplementedError
-
-    def _initialize_time(self) -> None:
-        self.time_ref = TimeRef(
-            start_time_utc=self.start_time,
-            def_time_step=dt.timedelta(seconds=self.config.time.step_size_s),
+    def _initialize_time_reference(
+        self, start_time: dt.datetime, step_size_s: int
+    ) -> TimeRef:
+        """
+        Initializes the time reference for the simulation. Sets the start time, end time, and time step size.
+        Args:
+            start_time (dt.datetime): The start time of the simulation.
+            step_size_s (int): The time step size in seconds.
+        Returns:
+            TimeRef: An instance of the TimeRef class, which encapsulates time-related information.
+        """
+        return TimeRef(
+            start_time_utc=start_time,
+            def_time_step=dt.timedelta(seconds=step_size_s),
         )
-        self.time_info = self.time_ref.get_time_info()
 
-        # Time info
-        log.info(
-            {
-                LOG_SIM_T_KEY: self.time_info.t,
-                LOG_ENTITY_KEY: "Simulation",
-                LOG_METHOD_KEY: "run",
-                LOG_MESSAGE_KEY: f"~~~~~~~~~~~~~~~~ {self.time_info.t} ~~~~~~~~~~~~~~~~",
-            }
-        )
+    def _initialize_weather(self, city: CityEnum, db_dir: str) -> Weather:
+        """
+        Initializes the weather reference for the simulation.
+        Args:
+            city (CityEnum): The city for which the weather information is required.
+            db_dir (str): The directory where the weather data will be stored.
+        """
+        return Weather(city=city, db_dir=db_dir)
 
-    def _initialize_modules(self) -> None:
-        self.data_module = DataModule(base_dir=self.directory)
-        self.control_module = ControlModule(base_dir=self.directory)
+    def _initialize_modules(self, directory: str) -> list[ControlModule, DataModule]:
+        """
+        Initializes the agency modules for the whole simulation.
+        Args:
+            directory (str): The directory where the modules will be stored.
+        Returns:
+            list[ControlModule, DataModule]: A list containing the control and data modules.
+        """
+        control_module = ControlModule(base_dir=directory)
+        data_module = DataModule(base_dir=directory)
+        return control_module, data_module
 
-    def _initialize_assets(self) -> dict[str, AssetType]:
+    def _initialize_assets(
+        self, t: dt.datetime, oat: float, assets_configs_dict: dict[str, object]
+    ) -> dict[str, AssetType]:
+        """
+        Initializes the assets for the simulation based on the configuration provided.
+        Args:
+            t (dt.datetime): The current time of the simulation.
+            oat (float): The outside air temperature, in DegC.
+            assets_configs_dict (dict[str, object]): A dictionary containing the asset configurations.
+        Returns:
+            dict[str, AssetType]: A dictionary mapping asset UIDs to their respective asset instances.
+        """
+        # Loop over all inputed asset configs
         assets: dict[str, AssetType] = {}
-        ext_temperature = self.weather_info.temperature
-        for asset_uid, asset_config_dict in self.config.assets.items():
-            # INITIAL STATE DEFINITION
-            # Add outside air temperature to asset config
-            asset_config_dict.initial_state_dict["outside_air_temperature"] = (
-                ext_temperature
-            )
+        for asset_uid, asset_config_dict in assets_configs_dict.items():
+            # Initial state definition
+            asset_config_dict.initial_state_dict[OAT_KEY] = oat
 
-            # ASSET INSTANTIATION
+            # Asset instances creation
             asset_type = asset_config_dict.asset_type
-            match asset_type:
-                case "commercial building":
-                    asset_config = BuildingConfig.model_validate(asset_config_dict)
-                    asset = Building(
-                        asset_uid, asset_config, self.time_info.t, ext_temperature
-                    )
-                case "electric vehicle":
-                    asset_config = ElectricVehicleConfig.model_validate(
-                        asset_config_dict
-                    )
-                    asset = ElectricVehicle(
-                        asset_uid, asset_config, self.time_info.t, ext_temperature
-                    )
-                case "energy storage":
-                    asset_config = EnergyStorageConfig.model_validate(asset_config_dict)
-                    asset = EnergyStorage(
-                        asset_uid, asset_config, self.time_info.t, ext_temperature
-                    )
-                case _:
-                    raise ValueError(f"Asset type not supported: {asset_type}.")
-
+            AssetClass = AvailableAssetsEnum.get_asset_class_from_asset_name(asset_type)
+            AssetConfigClass = (
+                AvailableAssetsEnum.get_asset_config_class_from_asset_name(asset_type)
+            )
+            asset = AssetClass(
+                asset_uid,
+                AssetConfigClass.model_validate(asset_config_dict),
+                t,
+                oat,
+            )
             assets[asset_uid] = asset
 
         return assets
 
-    def _initialize_shadow_assets(self) -> dict[str, AssetType]:
+    def _initialize_shadow_assets(
+        self, real_assets_dict: dict[str, AssetType]
+    ) -> dict[str, AssetType]:
+        """
+        Initializes shadow assets as an exact copy of the real assets.
+        Args:
+            real_assets_dict (dict[str, AssetType]): A dictionary mapping asset UIDs to their respective asset instances.
+        Returns:
+            dict[str, AssetType]: A dictionary mapping asset UIDs to their respective shadow asset instances.
+        """
         # Initialize shadow assets as an exact copy of the real assets
-        shadow_assets = {uid: deepcopy(asset) for uid, asset in self.assets.items()}
+        shadow_assets = {
+            uid: deepcopy(asset) for uid, asset in real_assets_dict.items()
+        }
 
         # Modify asset name to differentiate from real asset
         for asset in shadow_assets.values():
@@ -289,33 +267,42 @@ class Simulation:
 
         return shadow_assets
 
-    def _initialize_agents(self) -> None:
-        self.agents: dict[str, Agent] = {}
+    def _initialize_agents(
+        self,
+        directory: str,
+        time_info: TimeRef,
+        agent_configs_dict: dict[str, AgentConfig],
+        assets: dict[str, AssetType],
+        shadow_assets: dict[str, AssetType],
+    ) -> dict[str, Agent]:
+        """
+        Initializes the agents for the simulation based on the configuration provided.
+        Args:
+            directory (str): The directory where the agents will be stored.
+            agent_configs_dict (dict[str, AgentConfig]): A dictionary containing the agent configurations.
+            assets (dict[str, AssetType]): A dictionary mapping asset UIDs to their respective asset instances.
+            shadow_assets (dict[str, AssetType]): A dictionary mapping asset UIDs to their respective shadow asset instances.
+        Returns:
+            dict[str, Agent]: A dictionary mapping agent UIDs to their respective agent instances.
+        """
+        agents: dict[str, Agent] = {}
 
-        # Loop over agents
-        for uid, agent_config in self.config.agents.items():
+        # Loop over all input agent configs
+        for uid, agent_config in agent_configs_dict.items():
             # Initialize agent directory
-            agent_dir = os.path.join(self.directory, uid)
+            agent_dir = os.path.join(directory, uid)
             if os.path.isdir(agent_dir):
                 shutil.rmtree(agent_dir)  # Delete if exists
             os.makedirs(agent_dir)
 
-            # Propagation configuration elements for None values
-            # TODO: Replace this to avoid config fields redundancy
-            if agent_config.control.reinforcement_learning.n_controllers is None:
-                n_controllers = agent_config.control.n_controllers
-                agent_config.control.reinforcement_learning.n_controllers = (
-                    n_controllers
-                )
-
-            # Initialize new agent instance
+            # Initialize agent instance
             agent = Agent(
                 uid=uid,
-                time_info=self.time_info,
+                directory=agent_dir,
+                time_info=time_info,
                 config=agent_config,
-                data_module=self.data_module,
-                control_module=self.control_module,
-                weather_info=self.weather_info,
+                data_module=None,
+                control_module=None,
             )
 
             # Save Agent config in directory
@@ -323,13 +310,8 @@ class Simulation:
             agent.save_config(config_filepath)
 
             # Assign Agent instance to its corresponding asset and shadow asset
-            agent.assign_to_asset(self.assets[uid])
-            agent.assign_to_shadow_asset(self.shadow_assets[uid])
-
-            # Initialize infrastructure for agent
-            self.data_module.initialize_new_agent_data_infrastructure(
-                uid, agent_config.data.signals_info
-            )
+            agent.assign_to_asset(assets[uid], shadow_assets[uid])
 
             # Add agent to simulation
-            self.agents[uid] = agent
+            agents[uid] = agent
+        return agents

@@ -14,13 +14,31 @@ from neuraflux.global_variables import (
     LOG_MESSAGE_KEY,
     LOG_METHOD_KEY,
     LOG_SIM_T_KEY,
+    OAT_KEY,
     TIMESTAMP_KEY,
 )
 from neuraflux.schemas.control import DiscreteControl
 
 
-class Asset(metaclass=ABCMeta):
+class RequiredClassVarsMeta(ABCMeta):
+    def __new__(mcs, name, bases, namespace):
+        # Skip check for the abstract base class itself
+        if bases:  # Only check subclasses
+            # Check if required class variables are defined
+            required_vars = getattr(mcs, "required_class_vars", [])
+            for var in required_vars:
+                if var not in namespace:
+                    raise TypeError(
+                        f"Class {name} must define the required class variable: {var}"
+                    )
+
+        return super().__new__(mcs, name, bases, namespace)
+
+
+class Asset(metaclass=RequiredClassVarsMeta):
     """Base class for all assets."""
+
+    required_class_vars = ["CONFIG_CLASS", "NAME"]
 
     def __init__(
         self,
@@ -36,9 +54,9 @@ class Asset(metaclass=ABCMeta):
 
         # Core variables
         self.timestamp: dt.datetime = timestamp
-        self.outside_air_temperature: float = outside_air_temperature
         self.control: list[int] = []
         self.power: float | None = None
+        setattr(self, OAT_KEY, outside_air_temperature)
 
         # TRACKED VARIABLE AND HISTORY
         # Initialize history for variables tracked in the simulation
@@ -53,6 +71,12 @@ class Asset(metaclass=ABCMeta):
         for key, value in self.config.initial_state_dict.items():
             setattr(self, key, value)
         self._update_tracked_variables()
+
+        # Convert array-like signals to individual variables
+        for var in self.config.tracked_variables:
+            if isinstance(getattr(self, var), (list, tuple, np.ndarray)):
+                for i in range(len(getattr(self, var))):
+                    setattr(self, var + f"_{i+1}", getattr(self, var)[i])
 
         # Logging
         asset_class = self.__class__.__name__
@@ -111,6 +135,8 @@ class Asset(metaclass=ABCMeta):
                 for i in range(len(getattr(self, var))):
                     setattr(self, var + f"_{i+1}", getattr(self, var)[i])
 
+        setattr(self, OAT_KEY, outside_air_temperature)
+
         # NOTE: The child class must define the power variable
         return self.power
 
@@ -132,7 +158,7 @@ class Asset(metaclass=ABCMeta):
     def auto_step(
         self,
         timestamp: Union[int, dt.datetime],
-        outside_air_temperature: float | None,
+        outside_air_temperature: float,
     ) -> float:
         """Perform a step in the simulation, automatically choosing control.
 
@@ -152,7 +178,8 @@ class Asset(metaclass=ABCMeta):
     def get_signal(self, signal: str) -> Any:
         if hasattr(self, signal):
             return getattr(self, signal)
-
+        for k, v in self.__dict__.items():
+            print(f"{k}: {v}")
         return np.nan
 
     def get_historical_data(self, nan_padding: bool = False) -> pd.DataFrame:
