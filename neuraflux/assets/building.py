@@ -40,15 +40,6 @@ class Building(Asset):
         # Store outside air temperature for this step
         self.outside_air_temperature = outside_air_temperature
 
-        # TODO: Implement in Agent
-        # TEMPORARY: fallback to auto control in individual zones if discomfort too big
-        def_control = self.get_auto_control(timestamp, outside_air_temperature)
-        for i in range(len(control)):
-            if self.temperature[i] > self.cool_setpoint + 1.0:
-                control[i] = def_control[i]
-            elif self.temperature[i] < self.heat_setpoint - 1.0:
-                control[i] = def_control[i]
-
         # Define the new state of the HVAC system based on controls
         self.hvac = [c.value - 2 for c in control]
 
@@ -124,11 +115,11 @@ class Building(Asset):
 
             # Add control values
             if prev_idx is not None and df.loc[prev_idx, "control_1"] is not None:
-                df.loc[idx, "hvac_1"] = df.loc[idx, "control_1"] - 2
+                df.loc[idx, "hvac_1"] = df.loc[prev_idx, "control_1"] - 2
             if prev_idx is not None and df.loc[prev_idx, "control_2"] is not None:
-                df.loc[idx, "hvac_2"] = df.loc[idx, "control_2"] - 2
+                df.loc[idx, "hvac_2"] = df.loc[prev_idx, "control_2"] - 2
             if prev_idx is not None and df.loc[prev_idx, "control_3"] is not None:
-                df.loc[idx, "hvac_3"] = df.loc[idx, "control_3"] - 2
+                df.loc[idx, "hvac_3"] = df.loc[prev_idx, "control_3"] - 2
             prev_idx = idx
         return df
 

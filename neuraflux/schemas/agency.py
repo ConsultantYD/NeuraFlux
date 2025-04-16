@@ -1,5 +1,7 @@
 from enum import Enum, unique
-from typing import Any
+from typing import Any, Literal
+
+from pydantic import Field
 
 from .base import BaseSchema
 
@@ -48,20 +50,22 @@ class RLTrainingConfig(BaseSchema):
 class RealLearningConfig(BaseSchema):
     # General and orchestration
     enabled: bool = True  # Whether to enable real learning
-    trigger_freq_cron: str = "0 0 * * *"  # Training frequency
+    trigger_freq_cron: str = "0 0 * * 1"  # Training frequency
     # Training
     rl_training_config: RLTrainingConfig = RLTrainingConfig()
 
 
 class SimLearningConfig(BaseSchema):
     # General and orchestration
-    enabled: bool = False  # Whether to enable simulation training
-    trigger_freq_cron: str = "55 23 */2 * *"  # Training frequency
+    enabled: bool = True  # Whether to enable simulation training
+    trigger_freq_cron: str = "0 0 * * *"  # Training frequency
     # Sampling and generating simulated trajectories
-    # NOTE: n_traj = n_samplings(~t) * n_traj_per_sample
+    # NOTE: n_traj = n_samples(~t) * n_traj_per_sample
+    n_samples: int = 100  # Number of real timestamps to sample from
     n_traj_per_sample: int = 1  # Number of trajectories to generate at each sample
-    n_samplings: int = 10  # Number of real timestamps to sample from
-    trajectory_len: int = 10  # Length of each trajectory sampled and simulated
+    trajectory_len: int = 18  # Length of each trajectory sampled and simulated
+    policy: Literal["random_policy", "q_policy", "hvac_policy"] = "hvac_policy"
+    policy_kwargs: dict[str, object] = {"epsilon": 0.5, "comfort_constraint": False}
     # Training
     rl_training_config: RLTrainingConfig = RLTrainingConfig()
 
@@ -94,15 +98,36 @@ class SignalInfo(BaseSchema):
     temporal_knowledge: tuple = (None, 0)
 
 
+class ControlSelectionConfig(BaseSchema):
+    enabled: bool = True
+    policy: Literal["random_policy", "q_policy", "hvac_policy"] = "q_policy"
+    policy_kwargs: dict[str, object] = {}
+
+
 class AgentControlConfig(BaseSchema):
     n_controllers: int
+    control_selection: dict[int, ControlSelectionConfig] = Field(
+        default_factory=lambda: {
+            0: ControlSelectionConfig(enabled=False),
+            60 * 60 * 24 * 7: ControlSelectionConfig(
+                policy="q_policy", policy_kwargs={"epsilon": 0.0}
+            ),
+        }
+    )
     rl_config: RLConfig
-    real_learning_configs: dict[int, RealLearningConfig] = {
-        0: RealLearningConfig(enabled=False),
-        60 * 60 * 24 * 1: RealLearningConfig(),
-    }
+    real_learning_configs: dict[int, RealLearningConfig] = Field(
+        default_factory=lambda: {
+            0: RealLearningConfig(enabled=False),
+            60 * 60 * 24 * 7: RealLearningConfig(),
+        }
+    )
     real_replay_buffer_size: int = 10000
-    sim_learning_configs: dict[int, SimLearningConfig] = {0: SimLearningConfig()}
+    sim_learning_configs: dict[int, SimLearningConfig] = Field(
+        default_factory=lambda: {
+            0: SimLearningConfig(enabled=False),
+            60 * 60 * 24 * 1: SimLearningConfig(),
+        }
+    )
     sim_replay_buffer_size: int = 1000
 
 

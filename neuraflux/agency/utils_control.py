@@ -69,11 +69,9 @@ def convert_data_to_state(
     old_states = states
     states = states.dropna()
     if states.shape[0] != states_len_before:
-        print("Rows were removed !")
-        print("before")
-        print(old_states)
-        print("after")
-        print(states)
+        raise ValueError(
+            f"NaN or NA values found in the data. Please check the data. \n {old_states}"
+        )
 
     states = states.values
     states = np.asarray(states).astype("float32")

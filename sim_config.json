@@ -13,6 +13,20 @@
             },
             "control": {
                 "n_controllers": 3,
+                "control_selection": {
+                    "0": {
+                        "enabled": false,
+                        "policy": "q_policy",
+                        "policy_kwargs": {}
+                    },
+                    "604800": {
+                        "enabled": true,
+                        "policy": "hvac_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.0
+                        }
+                    }
+                },
                 "rl_config": {
                     "action_size": 5,
                     "state_signals": [
@@ -35,7 +49,7 @@
                 "real_learning_configs": {
                     "0": {
                         "enabled": false,
-                        "trigger_freq_cron": "0 0 * * *",
+                        "trigger_freq_cron": "0 0 * * 1",
                         "rl_training_config": {
                             "target_update_period": 20,
                             "n_fit_epochs": 10,
@@ -47,9 +61,9 @@
                             "tf_batch_size": 32
                         }
                     },
-                    "86400": {
+                    "604800": {
                         "enabled": true,
-                        "trigger_freq_cron": "0 0 * * *",
+                        "trigger_freq_cron": "0 0 * * 1",
                         "rl_training_config": {
                             "target_update_period": 20,
                             "n_fit_epochs": 10,
@@ -66,10 +80,37 @@
                 "sim_learning_configs": {
                     "0": {
                         "enabled": false,
-                        "trigger_freq_cron": "55 23 */2 * *",
+                        "trigger_freq_cron": "0 0 * * *",
+                        "n_samples": 30,
                         "n_traj_per_sample": 1,
-                        "n_samplings": 10,
-                        "trajectory_len": 10,
+                        "trajectory_len": 12,
+                        "policy": "hvac_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.5,
+                            "comfort_constraint": false
+                        },
+                        "rl_training_config": {
+                            "target_update_period": 20,
+                            "n_fit_epochs": 10,
+                            "experience_sampling_size": 128,
+                            "learning_rate": 0.0005,
+                            "gradient_clip": 0.5,
+                            "n_target_iterators": 20,
+                            "n_sampling_iters": 10,
+                            "tf_batch_size": 32
+                        }
+                    },
+                    "86400": {
+                        "enabled": true,
+                        "trigger_freq_cron": "0 0 * * *",
+                        "n_samples": 30,
+                        "n_traj_per_sample": 1,
+                        "trajectory_len": 12,
+                        "policy": "hvac_policy",
+                        "policy_kwargs": {
+                            "epsilon": 0.5,
+                            "comfort_constraint": false
+                        },
                         "rl_training_config": {
                             "target_update_period": 20,
                             "n_fit_epochs": 10,
@@ -168,7 +209,7 @@
                         "scalable": false,
                         "source": "asset",
                         "tags": [
-                            "U"
+                            "O"
                         ],
                         "temporal_knowledge": [
                             null,
@@ -181,7 +222,7 @@
                         "scalable": false,
                         "source": "asset",
                         "tags": [
-                            "U"
+                            "O"
                         ],
                         "temporal_knowledge": [
                             null,
@@ -194,7 +235,7 @@
                         "scalable": false,
                         "source": "asset",
                         "tags": [
-                            "U"
+                            "O"
                         ],
                         "temporal_knowledge": [
                             null,
@@ -244,7 +285,7 @@
                         ]
                     }
                 },
-                "memory_dump_freq_cron": "55 23 * * *"
+                "memory_dump_freq_cron": "55 23 */3 * *"
             },
             "product": "HVAC_TARIFF_COMFORT",
             "tariff": "ONTARIO_GEN_TOU"
@@ -309,7 +350,7 @@
     "seed": 42,
     "time": {
         "start_time": "2023-01-01T00:00:00",
-        "end_time": "2023-01-30T00:00:00",
+        "end_time": "2023-07-01T00:00:00",
         "step_size_s": 300
     }
 }
