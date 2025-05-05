@@ -219,6 +219,30 @@ class Agent:
             new_state_dict = {
                 col: val for col, val in zip(state_cols, new_state_values)
             }
+        elif asset_type == "energy storage":
+            previous_internal_energy = df.loc[df.index == prev_t, state_cols].values.reshape(
+                n_state_cols
+            )
+            power = self.cpm[controls[0]]
+            max_energy = self.config.data.signals_info["internal_energy"].max_value
+            
+            # If the internal energy is 0, we cannot deliver power
+            if round(previous_internal_energy[0]) == 0 and power < 0:
+                power = 0
+            # If the internal energy is at max capacity, we cannot receive power
+            elif round(previous_internal_energy[0]) == max_energy and power > 0:
+                power = 0
+            
+            # Calculate energy difference
+            time_difference = dt.timedelta(minutes=5)
+            energy_difference = power * time_difference.total_seconds() / 3600
+            
+            # Update energy - must remain between 0 and max capacity
+            internal_energy = previous_internal_energy + energy_difference
+            internal_energy = np.clip(internal_energy, 0, max_energy)
+            new_state_dict = {
+                col: val for col, val in zip(state_cols, internal_energy)
+            }
         else:
             raise ValueError(
                 f"Unknown asset type {asset_type}. Please check the configuration."

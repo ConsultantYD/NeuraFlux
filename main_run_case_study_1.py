@@ -6,8 +6,11 @@ from neuraflux.schemas.agency import (
     AgentConfig,
     AgentControlConfig,
     AgentDataConfig,
+    ControlSelectionConfig,
+    RealLearningConfig,
     RLConfig,
     SignalTags,
+    SimLearningConfig,
 )
 from neuraflux.schemas.asset_config import EnergyStorageConfig
 from neuraflux.schemas.simulation import (
@@ -28,7 +31,7 @@ if __name__ == "__main__":
             "scalable": True,
         },
         OAT_KEY: {
-            "tags": [SignalTags.OBSERVATION.value],
+            "tags": [SignalTags.EXOGENOUS.value, SignalTags.RL_STATE.value],
             "temporal_knowledge": (None, 0),
             "min_value": -50,
             "max_value": 50,
@@ -37,7 +40,7 @@ if __name__ == "__main__":
     }
     CONTROL_POWER_MAPPING = {0: -100, 1: 0, 2: 100}
     INITIAL_STATE_DICT = {
-        "internal_energy": 0,
+        "internal_energy": 50,
     }
 
     ASSET_CONFIG = EnergyStorageConfig(
@@ -56,6 +59,29 @@ if __name__ == "__main__":
                 if SignalTags.RL_STATE.value in v["tags"]
             ],
         ),
+        control_selection={
+            0: ControlSelectionConfig(enabled=False),
+            60 * 60 * 24 * 7: ControlSelectionConfig(
+                policy="q_policy", policy_kwargs={"epsilon": 0.0}
+            ),
+        },
+        real_replay_buffer_size=10000,
+        real_learning_configs={
+            0: RealLearningConfig(enabled=False),
+            60 * 60 * 24 * 7: RealLearningConfig(trigger_freq_cron="0 0 * * 1"),
+        },
+        sim_replay_buffer_size=1000,
+        sim_learning_configs={
+            0: SimLearningConfig(enabled=False),
+            60 * 60 * 24 * 1: SimLearningConfig(
+                trigger_freq_cron="0 0 * * *",
+                n_samples=100,
+                n_traj_per_sample=1,
+                trajectory_len=18,
+                policy="q_policy",
+                policy_kwargs={"epsilon": 0.5},
+            ),
+        },
     )
 
     AGENT_DATA_CONFIG = AgentDataConfig(
@@ -68,8 +94,8 @@ if __name__ == "__main__":
     AGENT_CONFIG = AgentConfig(
         control=AGENT_CONTROL_CONFIG,
         data=AGENT_DATA_CONFIG,
-        tariff="ONTARIO_GEN_TOU",
-        product="PURE_DEMAND_RESPONSE",
+        tariff="NO_TARIFF",
+        product="ERCOT_ARBITRAGE",
     )
 
     # Define the simulation configuration
@@ -84,7 +110,7 @@ if __name__ == "__main__":
 
     SIMULATION_CONFIG = SimulationConfig(
         data=DATA_CONFIG,
-        directory="simulations/simple_validation",
+        directory="simulations/case_study_1",
         time=TIME_CONFIG,
         geography=GEO_CONFIG,
         agents={"Agent001": AGENT_CONFIG},
