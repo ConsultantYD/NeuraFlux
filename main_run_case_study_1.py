@@ -68,16 +68,16 @@ if __name__ == "__main__":
         real_replay_buffer_size=10000,
         real_learning_configs={
             0: RealLearningConfig(enabled=False),
-            60 * 60 * 24 * 7: RealLearningConfig(trigger_freq_cron="0 0 * * 1"),
+            60 * 60 * 24 * 1: RealLearningConfig(trigger_freq_cron="0 0 * * *"),
         },
         sim_replay_buffer_size=1000,
         sim_learning_configs={
             0: SimLearningConfig(enabled=False),
             60 * 60 * 24 * 1: SimLearningConfig(
                 trigger_freq_cron="0 0 * * *",
-                n_samples=100,
+                n_samples=20,
                 n_traj_per_sample=1,
-                trajectory_len=18,
+                trajectory_len=10,
                 policy="q_policy",
                 policy_kwargs={"epsilon": 0.5},
             ),
@@ -102,7 +102,7 @@ if __name__ == "__main__":
     DATA_CONFIG = SimulationDataConfig(base_dir="Data Module")
     TIME_CONFIG = SimulationTimeConfig(
         start_time="2023-01-01T00:00:00",
-        end_time="2023-01-03T00:00:00",
+        end_time="2023-04-01T00:00:00",
         step_size_s=300,
     )
 
