@@ -243,6 +243,7 @@ class ERCOTMarketProduct(Product):
             self.get_market_price(time=row.name) * -row[ENERGY_KEY]
             for index, row in df.iterrows()
         ]
+        pnl = [p/1000 for p in pnl]  # Convert to $/kWh
         df[REWARD_KEY] = pnl/1000
         return df[[REWARD_KEY]].values
 
@@ -264,7 +265,7 @@ class HOEPMarketProduct(Product):
             price_file_path, index_col=0, parse_dates=True
         )
         # Set the index to be utc
-        self.dynamic_prices_df.index = self.dynamic_prices_df.index.tz_localize("UTC")
+        self.dynamic_prices_df.index = self.dynamic_prices_df.index #.tz_localize("UTC")
 
         # Run default class init
         super().__init__(period)

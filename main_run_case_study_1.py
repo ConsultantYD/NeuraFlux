@@ -1,4 +1,5 @@
 import json
+import os
 
 from neuraflux.global_variables import OAT_KEY
 from neuraflux.geography import CityEnum
@@ -95,13 +96,13 @@ if __name__ == "__main__":
         control=AGENT_CONTROL_CONFIG,
         data=AGENT_DATA_CONFIG,
         tariff="NO_TARIFF",
-        product="ERCOT_ARBITRAGE",
+        product="HOEP_MARKET",
     )
 
     # Define the simulation configuration
     DATA_CONFIG = SimulationDataConfig(base_dir="Data Module")
     TIME_CONFIG = SimulationTimeConfig(
-        start_time="2023-01-01T00:00:00",
+        start_time="2023-01-01T01:00:00",
         end_time="2023-04-01T00:00:00",
         step_size_s=300,
     )
@@ -120,9 +121,9 @@ if __name__ == "__main__":
     config_dict = SIMULATION_CONFIG.model_dump()
     with open("sim_config.json", "w") as f:
         json.dump(config_dict, f, indent=4)
-
     with open("sim_config.json", "r") as f:
         config_dict = json.load(f)
+    os.remove("sim_config.json")
 
     SIMULATION_CONFIG = SimulationConfig.from_custom_dict(config_dict)
     # SIMULATION_CONFIG = SimulationConfig.model_construct(config_dict)

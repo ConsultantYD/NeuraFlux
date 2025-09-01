@@ -1,4 +1,5 @@
 import json
+import os
 
 from neuraflux.geography import CityEnum
 from neuraflux.global_variables import OAT_KEY
@@ -139,7 +140,7 @@ if __name__ == "__main__":
 
     SIMULATION_CONFIG = SimulationConfig(
         data=DATA_CONFIG,
-        directory="simulations/simple_validation",
+        directory="simulations/case_study_2",
         time=TIME_CONFIG,
         geography=GEO_CONFIG,
         agents={"Agent001": AGENT_CONFIG},
@@ -149,9 +150,9 @@ if __name__ == "__main__":
     config_dict = SIMULATION_CONFIG.model_dump()
     with open("sim_config.json", "w") as f:
         json.dump(config_dict, f, indent=4)
-
     with open("sim_config.json", "r") as f:
         config_dict = json.load(f)
+    os.remove("sim_config.json")
 
     SIMULATION_CONFIG = SimulationConfig.from_custom_dict(config_dict)
     # SIMULATION_CONFIG = SimulationConfig.model_construct(config_dict)
