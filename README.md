@@ -113,10 +113,12 @@ Neuraflux’s capabilities encompass market mechanisms and economic factors, suc
 
 ## Getting Started
 
-To launch a new simulation, edit the local ```config.json``` file then run:
+To reproduce case studies presented in academic materials, run the corresponding files:
 
   ```bash
-  python main.py
+  python main_run_case_study_1.py
+  python main_run_case_study_2.py
+  ...
   ```
 
 To launch **NeuraView**, NeuraFlux's dashboard, you can use the command:
@@ -125,18 +127,10 @@ To launch **NeuraView**, NeuraFlux's dashboard, you can use the command:
   streamlit run neuraview/main.py
   ```
 
-## Case Studies
-
-To be completed.
-
 ### NeuraFlux v1.X Case Studies
 
 The code and visualizations presented in the article *NeuraFlux: A Scalable and Adaptive Framework for Autonomous Data-Driven Multi-Agent Power Optimization* are available at the [following link](https://github.com/YsaelDesage/NeuraFlux), under commit version *7a28c5a*.
 
-## Documentation
-
-To be completed.
-
 ## License
 
-This project is licensed under the GNU General Public License v3.0. The full text of the license can be found in the LICENSE file.
+This project is licensed under the Apache v2.0. The full text of the license can be found in the LICENSE file.
