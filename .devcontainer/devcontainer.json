@@ -1,12 +1,12 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the
 // README at: https://github.com/devcontainers/templates/tree/main/src/python
 {
-	"name": "Python 3",
+    "name": "Python 3",
     "build": {
         "dockerfile": "Dockerfile",
         "context": ".."
     },
-	"customizations": {
+    "customizations": {
         "vscode": {
             "settings": {
                 "python.defaultInterpreterPath": "/usr/local/bin/python",
@@ -26,7 +26,8 @@
             "extensions": [
                 "ms-python.python",
                 "ms-python.vscode-pylance",
-                "astral-sh.ruff"
+                "astral-sh.ruff",
+                "eamodio.gitlens"
             ]
         }
     },

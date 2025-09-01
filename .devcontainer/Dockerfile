@@ -1,5 +1,10 @@
 # Use the official Python image with Python 3.11
-FROM python:3.11-slim
+FROM python:3.11-bookworm
+
+# Install Git
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y git
 
 # Set the working directory in the container
 WORKDIR /app
