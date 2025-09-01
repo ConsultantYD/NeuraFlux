@@ -94,9 +94,11 @@ class HVACTariffAndComfortProduct(Product):
             # 0 otherwise
             reward += np.where(
                 df[col].values > sp_cool,
-                -np.square(sp_cool - df[col].values)*10,
+                -np.square(sp_cool - df[col].values) * 10,
                 np.where(
-                    df[col].values < sp_heat, -np.square(sp_heat - df[col].values)*10, 0
+                    df[col].values < sp_heat,
+                    -np.square(sp_heat - df[col].values) * 10,
+                    0,
                 ),
             )
         df[REWARD_KEY] = reward
@@ -205,7 +207,7 @@ class CAISODynamicPricingProduct(Product):
                     )
 
                 # Add the price to the DataFrame
-                df.loc[index, f"market_price_t+{i+1}"] = price
+                df.loc[index, f"market_price_t+{i + 1}"] = price
 
         return df
 
@@ -214,6 +216,41 @@ class CAISODynamicPricingProduct(Product):
 
     def client_facing_name(self) -> str:
         return "Dynamic Pricing (CAISO)"
+
+
+class ERCOTMarketProduct(Product):
+    def __init__(
+        self,
+        data_filepath: str = "datasets/ERCOT_HB_BUSAVG_2023_2024_5min_interpolated.parquet",
+        period: int = 24,
+    ):
+        # Reading the dynamic prices from the parquet file
+        self.rt_df = pd.read_parquet(data_filepath)
+        self.col = list(self.rt_df.columns)[0]
+
+        # Run default class init
+        super().__init__(period)
+
+    def get_market_price(self, time: dt.datetime) -> float:
+        # Find the closest time index in the DataFrame to the given time
+        closest_time = self.rt_df.index.get_loc(time)
+        return self.rt_df.iloc[closest_time][self.col]
+
+    def calculate_rewards(self, df: pd.DataFrame) -> np.ndarray:
+        # Assuming the DataFrame has a datetime index and an 'energy' column
+        df = df.copy()
+        pnl = [
+            self.get_market_price(time=row.name) * -row[ENERGY_KEY]
+            for index, row in df.iterrows()
+        ]
+        df[REWARD_KEY] = pnl/1000
+        return df[[REWARD_KEY]].values
+
+    def calculate_total_price(self, df: pd.DataFrame) -> np.ndarray:
+        return -1 * self.calculate_rewards(df)
+
+    def client_facing_name(self) -> str:
+        return "Arbitrage (ERCOT Market)"
 
 
 class HOEPMarketProduct(Product):
@@ -277,7 +314,7 @@ class HOEPMarketProduct(Product):
                     )
 
                 # Add the price to the DataFrame
-                df.loc[index, f"market_price_t-{i+1}"] = price
+                df.loc[index, f"market_price_t-{i + 1}"] = price
 
         return df
 
@@ -467,6 +504,7 @@ class AvailableProductsEnum(Enum):
     PURE_DEMAND_RESPONSE = PureDemandResponseProduct
     DYNAMIC_PRICING = CAISODynamicPricingProduct
     EV_DR = EvDrTouGhgProduct
+    ERCOT_ARBITRAGE = ERCOTMarketProduct
     HVAC_BUILDING = HVACBuildingProduct
     HOEP_MARKET = HOEPMarketProduct
     SIMPLE_TARIFF_OPT = SimpleTariffOptimizationProduct
