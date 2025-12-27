@@ -53,8 +53,6 @@ class ControlModule(Module):
         action_size: int,
         simulation: bool = False,
     ) -> None:
-        print("Here is the cache registry")
-        print(self.cache_registry)
         # Log the start of the training process
         log.debug(
             {

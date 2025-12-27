@@ -91,7 +91,7 @@ def preload_weather_data(
 
     # Interpolate to minute-level granularity
     weather_data.set_index("time", inplace=True)
-    weather_data = weather_data.resample("1T").interpolate(method="linear")
+    weather_data = weather_data.resample("1min").interpolate(method="linear")
     weather_data.reset_index(inplace=True)
 
     # Create table if it doesn't exist and insert data

@@ -31,9 +31,6 @@ class StructuredLogHandler(StreamHandler):
         # Verify input is a dict
         if not isinstance(logging_dict, dict):
             return
-            raise ValueError(
-                f"Logging message must be a dictionary. Received {type(logging_dict)}: {logging_dict}"
-            )
 
         sim_time = (
             None if LOG_SIM_T_KEY not in logging_dict else logging_dict[LOG_SIM_T_KEY]
@@ -67,4 +64,11 @@ class StructuredLogHandler(StreamHandler):
                 log_df, self.conn, "execution_logs", index_col=LOG_TIMESTAMP_KEY
             )
         except Exception:
-            print("Failed to add log to database.")
+            self.handleError(record)
+
+    def close(self) -> None:
+        try:
+            if hasattr(self, "conn") and self.conn is not None:
+                self.conn.close()
+        finally:
+            super().close()

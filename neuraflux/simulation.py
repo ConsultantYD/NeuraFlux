@@ -1,8 +1,13 @@
 import datetime as dt
+import json
+import logging
 import os
 import random
 import shutil
+import traceback
 from copy import deepcopy
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import tensorflow as tf
@@ -23,16 +28,36 @@ from neuraflux.schemas.simulation import SimulationConfig
 from neuraflux.time_ref import TimeRef
 from neuraflux.weather import Weather
 from neuraflux.agency.utils_data import cron_matches
+from neuraflux.logging_utils import StructuredLogHandler
+from neuraflux.global_variables import DT_FILE_STR_FORMAT
 
 
 class Simulation:
-    def __init__(self, simulation_config: SimulationConfig) -> None:
+    def __init__(
+        self,
+        simulation_config: SimulationConfig,
+        *,
+        overwrite: bool = False,
+        make_unique: bool = True,
+        log_level: int | str = "INFO",
+        structured_logging: bool = True,
+    ) -> None:
         # Initialize key internal attributes
         self.config = simulation_config
-        self.directory = simulation_config.directory
-
-        # Create simulation directory if it does not exist
+        self.directory = self._prepare_output_directory(
+            simulation_config.directory,
+            overwrite=overwrite,
+            make_unique=make_unique,
+        )
+        self.config.directory = self.directory
         os.makedirs(self.directory, exist_ok=True)
+
+        # Configure logging early (so init errors are recorded).
+        self._configure_logging(
+            directory=self.directory,
+            log_level=log_level,
+            structured_logging=structured_logging,
+        )
 
         # Fix seeds for reproducibility
         self._fix_seeds(self.config.seed)
@@ -41,14 +66,12 @@ class Simulation:
         # - ENVIRONMENT
         # ---------------------------------------------------
         # Time-related components initialization
-        self.sim_start_time = dt.datetime.strptime(
-            self.config.time.start_time,
-            DT_STR_FORMAT,
-        )
-        self.sim_end_time = dt.datetime.strptime(
-            self.config.time.end_time,
-            DT_STR_FORMAT,
-        )
+        self.sim_start_time = self._parse_datetime(self.config.time.start_time)
+        self.sim_end_time = self._parse_datetime(self.config.time.end_time)
+        if self.sim_end_time <= self.sim_start_time:
+            raise ValueError(
+                f"Invalid simulation time range: end_time ({self.sim_end_time}) must be after start_time ({self.sim_start_time})."
+            )
         self.time_ref = self._initialize_time_reference(
             start_time=self.sim_start_time, step_size_s=self.config.time.step_size_s
         )
@@ -57,7 +80,10 @@ class Simulation:
 
         # Weather
         self.weather_ref = self._initialize_weather(
-            city=self.config.geography.city, db_dir=self.directory
+            city=self.config.geography.city,
+            db_dir=self.directory,
+            start_date=self.sim_start_time - dt.timedelta(days=1),
+            end_date=self.sim_end_time + dt.timedelta(days=1),
         )
         self.weather_info = self.weather_ref.get_weather_info_at_time(self.t)
         self.oat = self.weather_info.temperature
@@ -89,81 +115,289 @@ class Simulation:
             shadow_assets=self.shadow_assets,
         )
 
-    def run(self) -> None:
-        # Save simulation summary before starting
-        # self.sim_summary = {
-        #     "time start": self.start_time.strftime(DT_STR_FORMAT),
-        #     "time end": self.end_time.strftime(DT_STR_FORMAT),
-        #     "current time": self.time_info.t.strftime(DT_STR_FORMAT),
-        # }
-        # with open(os.path.join(self.directory, "sim_summary.json"), "w") as f:
-        #     json.dump(self.sim_summary, f, indent=4)
+    def run(self) -> dict[str, Any]:
+        logger = logging.getLogger(__name__)
 
-        # # Save configuration to directory as well (can be reproduced)
-        # with open(os.path.join(self.directory, "config.json"), "w") as f:
-        #     json.dump(self.config.model_dump(), f, indent=4)
+        started_at_utc = dt.datetime.utcnow()
+        self.sim_summary: dict[str, Any] = self._build_sim_summary(
+            status="running",
+            started_at_utc=started_at_utc,
+        )
+        self._write_json_file(
+            os.path.join(self.directory, "config.json"),
+            self.config.model_dump(mode="json"),
+        )
+        self._write_json_file(
+            os.path.join(self.directory, "sim_summary.json"),
+            self.sim_summary,
+        )
 
-        # Main simulation
-        while self.time_info.t < self.sim_end_time:
-            # ---------------------------------------------------
-            # - AGENTS EXECUTION
-            # ---------------------------------------------------
-            # Main agent action loop
-            agents_controls = {}
-            for uid, agent in self.agents.items():
-                # Update agent time referential info, and run it
-                agent.update_time_info(self.time_info)
-                agents_controls[uid] = agent.run()
-
-            # Increment simulation by one time step
-            # NOTE: Increment is done here to allow agents to run on initial state
-            self.time_ref.increment_time()
-
-            # Update time and weather info for simulation
-            self.time_info = self.time_ref.get_time_info()
-            self.t = self.time_info.t
-            self.weather_info = self.weather_ref.get_weather_info_at_time(self.t)
-            self.oat = self.weather_info.temperature
-
-            # Loop over assets
-            for uid, agent in self.agents.items():
-                asset = self.assets[uid]
-                shadow_asset = self.shadow_assets[uid]
-
-                # Advance asset simulation, using agent control if available
-                if agents_controls[uid] is not None:
-                    asset.step(
-                        agents_controls[uid],
-                        self.t,
-                        self.oat,
-                    )
-                # Use default asset policy if no agent control specified
-                else:
-                    asset.auto_step(self.t, self.oat)
-
-                # Keep shadow asset in sync with the real asset for comparison
-                shadow_control = shadow_asset.get_auto_control(self.t, self.oat)
-                shadow_control_dict = {}
-                for c in range(len(shadow_control)):
-                    control_key = CONTROL_KEY + "_" + str(c + 1)
-                    shadow_control_dict[control_key] = shadow_control[c].value
-                shadow_asset.step(shadow_control, self.t, self.oat)
-
-            # Save agent's full data to disk when requested
-            if cron_matches(
-                self.time_info.t,
-                self.config.agent_save_freq_cron,
-            ):
-                # Save agents' data to disk
+        status = "completed"
+        try:
+            # Main simulation loop
+            while self.time_info.t < self.sim_end_time:
+                # ---------------------------------------------------
+                # - AGENTS EXECUTION
+                # ---------------------------------------------------
+                agents_controls: dict[str, Any] = {}
                 for uid, agent in self.agents.items():
-                    agent_directory = os.path.join(
-                        self.directory,
-                        uid,
-                    )
-                    agent.to_file(directory=agent_directory)
+                    agent.update_time_info(self.time_info)
+                    agents_controls[uid] = agent.run()
 
-        for uid, agent in self.agents.items():
-            print(agent.get_data())
+                # Increment simulation by one time step
+                # NOTE: Increment is done here to allow agents to run on initial state
+                self.time_ref.increment_time()
+
+                # Update time and weather info for simulation
+                self.time_info = self.time_ref.get_time_info()
+                self.t = self.time_info.t
+                self.weather_info = self.weather_ref.get_weather_info_at_time(self.t)
+                self.oat = self.weather_info.temperature
+
+                # ---------------------------------------------------
+                # - ASSETS EXECUTION
+                # ---------------------------------------------------
+                for uid in self.agents.keys():
+                    asset = self.assets[uid]
+                    shadow_asset = self.shadow_assets[uid]
+
+                    # Advance asset simulation, using agent control if available
+                    if agents_controls[uid] is not None:
+                        asset.step(
+                            agents_controls[uid],
+                            self.t,
+                            self.oat,
+                        )
+                    else:
+                        asset.auto_step(self.t, self.oat)
+
+                    # Keep shadow asset in sync with the real asset for comparison
+                    shadow_control = shadow_asset.get_auto_control(self.t, self.oat)
+                    shadow_asset.step(shadow_control, self.t, self.oat)
+
+                # Save agent state snapshots when requested
+                if cron_matches(self.time_info.t, self.config.agent_save_freq_cron):
+                    for uid, agent in self.agents.items():
+                        agent_directory = os.path.join(self.directory, uid)
+                        agent.to_file(directory=agent_directory)
+
+        except Exception:
+            status = "failed"
+            self.sim_summary["error"] = {
+                "type": "exception",
+                "message": traceback.format_exc().splitlines()[-1],
+            }
+            self.sim_summary["traceback"] = traceback.format_exc()
+            logger.exception("Simulation failed")
+            raise
+        finally:
+            ended_at_utc = dt.datetime.utcnow()
+
+            # Ensure all remaining in-memory agent data is flushed to disk
+            for uid, agent in getattr(self, "agents", {}).items():
+                agent_directory = os.path.join(self.directory, uid)
+                self._finalize_agent_artifacts(
+                    uid=uid, agent=agent, agent_directory=agent_directory
+                )
+
+            # Persist simulation-level artifacts
+            try:
+                self.time_ref.to_file(self.directory)
+            except Exception:
+                logger.exception("Failed to write time_ref.json")
+
+            self.sim_summary.update(
+                {
+                    "status": status,
+                    "ended_at_utc": ended_at_utc.strftime(DT_STR_FORMAT),
+                    "duration_s": (ended_at_utc - started_at_utc).total_seconds(),
+                    "final_sim_time": self.time_info.t.strftime(DT_STR_FORMAT)
+                    if hasattr(self, "time_info")
+                    else None,
+                }
+            )
+            self._write_json_file(
+                os.path.join(self.directory, "sim_summary.json"),
+                self.sim_summary,
+            )
+
+            # Detach and close the structured logging handler to avoid leaking handlers
+            # across multiple Simulation runs in the same Python process.
+            if getattr(self, "_structured_log_handler", None) is not None:
+                try:
+                    root_logger = logging.getLogger()
+                    root_logger.removeHandler(self._structured_log_handler)
+                    self._structured_log_handler.close()
+                except Exception:
+                    logger.exception("Failed to close structured logging handler")
+
+        return self.sim_summary
+
+    def _build_sim_summary(
+        self, status: str, started_at_utc: dt.datetime
+    ) -> dict[str, Any]:
+        agents_summary: dict[str, Any] = {}
+        for uid, agent_cfg in self.config.agents.items():
+            asset_cfg = self.config.assets.get(uid)
+            agents_summary[uid] = {
+                "asset_type": getattr(asset_cfg, "asset_type", None),
+                "tariff": getattr(agent_cfg, "tariff", None),
+                "product": getattr(agent_cfg, "product", None),
+            }
+
+        return {
+            "status": status,
+            "started_at_utc": started_at_utc.strftime(DT_STR_FORMAT),
+            "directory": self.directory,
+            "seed": self.config.seed,
+            "geography": {"city": self.config.geography.city},
+            "time": {
+                "start_time": self.config.time.start_time,
+                "end_time": self.config.time.end_time,
+                "step_size_s": self.config.time.step_size_s,
+            },
+            "agent_save_freq_cron": self.config.agent_save_freq_cron,
+            "agents": agents_summary,
+            "artifacts": {
+                "config": "config.json",
+                "summary": "sim_summary.json",
+                "time_ref": "time_ref.json",
+                "logs_db": "logs.db",
+                "weather_db": "weather.db",
+            },
+        }
+
+    def _write_json_file(self, filepath: str, data: Any) -> None:
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        with open(filepath, "w") as f:
+            json.dump(data, f, indent=2, sort_keys=True, default=str)
+
+    def _finalize_agent_artifacts(
+        self, uid: str, agent: Agent, agent_directory: str
+    ) -> None:
+        logger = logging.getLogger(__name__)
+        os.makedirs(agent_directory, exist_ok=True)
+
+        # Flush in-memory agent data to disk (parquet)
+        try:
+            memory_df = agent.get_in_memory_data()
+            if hasattr(memory_df, "empty") and not memory_df.empty:
+                agent.push_in_memory_data_to_db(agent.data_dir)
+                agent.clear_in_memory_storage()
+        except Exception:
+            logger.exception("Failed to flush in-memory data for agent %s", uid)
+
+        # Persist agent (includes asset references) for dashboard consumption
+        try:
+            agent.to_file(directory=agent_directory)
+        except Exception:
+            logger.exception("Failed to write agent.pkl for agent %s", uid)
+
+        # Persist assets as standalone artifacts (optional redundancy)
+        try:
+            self.assets[uid].to_file(directory=agent_directory)
+        except Exception:
+            logger.exception("Failed to write asset pickle for agent %s", uid)
+        try:
+            self.shadow_assets[uid].to_file(directory=agent_directory)
+        except Exception:
+            logger.exception("Failed to write shadow asset pickle for agent %s", uid)
+
+    def _parse_datetime(self, value: str | dt.datetime) -> dt.datetime:
+        if isinstance(value, dt.datetime):
+            parsed = value
+        elif isinstance(value, str):
+            v = value.strip()
+            # Support common ISO 8601 variants
+            try:
+                parsed = dt.datetime.fromisoformat(v.replace("Z", "+00:00"))
+            except ValueError:
+                parsed = None
+            if parsed is None:
+                for fmt in (DT_STR_FORMAT, DT_FILE_STR_FORMAT):
+                    try:
+                        parsed = dt.datetime.strptime(v, fmt)
+                        break
+                    except ValueError:
+                        continue
+            if parsed is None:
+                raise ValueError(
+                    f"Invalid datetime string '{value}'. Expected ISO 8601 like '{DT_STR_FORMAT}' or filesystem format '{DT_FILE_STR_FORMAT}'."
+                )
+        else:
+            raise TypeError(f"Invalid datetime value type: {type(value)}")
+
+        # Normalize timezone-aware datetimes to naive UTC
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(dt.timezone.utc).replace(tzinfo=None)
+        return parsed
+
+    def _prepare_output_directory(
+        self, directory: str, *, overwrite: bool, make_unique: bool
+    ) -> str:
+        if not directory:
+            raise ValueError("SimulationConfig.directory must be a non-empty path.")
+
+        base = Path(directory)
+        if base.exists() and not base.is_dir():
+            raise ValueError(
+                f"SimulationConfig.directory must be a directory path; found file: {directory}"
+            )
+
+        # Safe default: never delete existing results unless explicitly requested.
+        if base.is_dir() and base.exists():
+            try:
+                has_contents = any(base.iterdir())
+            except OSError:
+                has_contents = True
+            if has_contents:
+                if overwrite:
+                    resolved = base.resolve()
+                    if resolved == Path("/"):
+                        raise ValueError(
+                            "Refusing to overwrite the filesystem root directory."
+                        )
+                    shutil.rmtree(base)
+                    return str(base)
+
+                if not make_unique:
+                    raise FileExistsError(
+                        f"Simulation output directory already exists and is not empty: {directory}"
+                    )
+
+                run_id = dt.datetime.utcnow().strftime(DT_FILE_STR_FORMAT)
+                candidate = base.parent / f"{base.name}__{run_id}"
+                suffix = 1
+                while candidate.exists():
+                    candidate = base.parent / f"{base.name}__{run_id}_{suffix}"
+                    suffix += 1
+                return str(candidate)
+
+        return str(base)
+
+    def _configure_logging(
+        self, *, directory: str, log_level: int | str, structured_logging: bool
+    ) -> None:
+        if isinstance(log_level, str):
+            level = logging._nameToLevel.get(log_level.upper(), logging.INFO)
+        else:
+            level = log_level
+
+        root_logger = logging.getLogger()
+        root_logger.setLevel(level)
+
+        # Add a console handler if none exists (helps local debugging).
+        if not any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers):
+            console = logging.StreamHandler()
+            console.setLevel(level)
+            root_logger.addHandler(console)
+
+        self._structured_log_handler = None
+        if structured_logging:
+            handler = StructuredLogHandler(db_dir=directory)
+            handler.setLevel(level)
+            root_logger.addHandler(handler)
+            self._structured_log_handler = handler
 
     def _fix_seeds(self, seed_value: int) -> None:
         """
@@ -191,14 +425,22 @@ class Simulation:
             def_time_step=dt.timedelta(seconds=step_size_s),
         )
 
-    def _initialize_weather(self, city: CityEnum, db_dir: str) -> Weather:
+    def _initialize_weather(
+        self,
+        city: CityEnum,
+        db_dir: str,
+        start_date: dt.datetime,
+        end_date: dt.datetime,
+    ) -> Weather:
         """
         Initializes the weather reference for the simulation.
         Args:
             city (CityEnum): The city for which the weather information is required.
             db_dir (str): The directory where the weather data will be stored.
         """
-        return Weather(city=city, db_dir=db_dir)
+        return Weather(
+            city=city, db_dir=db_dir, start_date=start_date, end_date=end_date
+        )
 
     def _initialize_modules(self, directory: str) -> list[ControlModule, DataModule]:
         """
@@ -291,9 +533,7 @@ class Simulation:
         for uid, agent_config in agent_configs_dict.items():
             # Initialize agent directory
             agent_dir = os.path.join(directory, uid)
-            if os.path.isdir(agent_dir):
-                shutil.rmtree(agent_dir)  # Delete if exists
-            os.makedirs(agent_dir)
+            os.makedirs(agent_dir, exist_ok=False)
 
             # Initialize agent instance
             agent = Agent(

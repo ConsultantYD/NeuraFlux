@@ -23,7 +23,7 @@ To get started with NeuraFlux, follow these simple steps:
   First, clone the NeuraFlux repository to the desired machine:
 
     ```bash
-    git clone https://github.com/yourusername/neuraflux.git
+    git clone https://github.com/YsaelDesage/NeuraFlux.git
     ```
 
 - **Step 2A: Local Install with Poetry**
@@ -36,10 +36,10 @@ To get started with NeuraFlux, follow these simple steps:
     poetry install
     ```
 
-  To launch a new simulation using the local ```config.json``` file, you can use:
+  To launch a simulation from Python (config instance), you can use one of the provided examples:
 
     ```bash
-    python main.py
+    python main_run_case_study_1.py
     ```  
 
 - **Step 2B: Docker Deployment**
@@ -88,10 +88,10 @@ Built on a deep reinforcement learning foundation, Neuraflux ensures powerful al
 
 ## Getting Started
 
-To launch a new simulation, edit the local ```config.json``` file then run:
+To launch a new simulation, build a `SimulationConfig` in Python and run it (see `main_run_case_study_1.py` and `main_run_case_study_2.py`):
 
   ```bash
-  python main.py
+  python main_run_case_study_1.py
   ```
 
 To launch **NeuraView**, NeuraFlux's dashboard, you can use the command:
@@ -110,4 +110,4 @@ The code and visualizations presented in the article *NeuraFlux: A Scalable and 
 
 ## License
 
-This project is licensed under the Appache Public License v2.0. The full text of the license can be found in the LICENSE file.
+This project is licensed under the Apache License v2.0. The full text of the license can be found in the LICENSE file.

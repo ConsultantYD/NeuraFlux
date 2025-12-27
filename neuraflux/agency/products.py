@@ -239,11 +239,14 @@ class ERCOTMarketProduct(Product):
     def calculate_rewards(self, df: pd.DataFrame) -> np.ndarray:
         # Assuming the DataFrame has a datetime index and an 'energy' column
         df = df.copy()
-        pnl = [
-            self.get_market_price(time=row.name) * -row[ENERGY_KEY]
-            for index, row in df.iterrows()
-        ]
-        df[REWARD_KEY] = pnl/1000
+        pnl = np.array(
+            [
+                self.get_market_price(time=row.name) * -row[ENERGY_KEY]
+                for index, row in df.iterrows()
+            ],
+            dtype=float,
+        )
+        df[REWARD_KEY] = pnl / 1000.0
         return df[[REWARD_KEY]].values
 
     def calculate_total_price(self, df: pd.DataFrame) -> np.ndarray:
