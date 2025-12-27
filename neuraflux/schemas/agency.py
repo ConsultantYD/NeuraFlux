@@ -100,7 +100,7 @@ class SignalInfo(BaseSchema):
 
 class ControlSelectionConfig(BaseSchema):
     enabled: bool = True
-    policy: Literal["random_policy", "q_policy", "hvac_policy"] = "q_policy"
+    policy: Literal["random_policy", "q_policy", "hvac_policy", "fixed_policy"] = "q_policy"
     policy_kwargs: dict[str, object] = {}
 
 

@@ -26,7 +26,11 @@ from neuraflux.simulation import Simulation
 
 class _DummyWeather:
     def __init__(
-        self, city, db_dir: str, start_date: dt.datetime, end_date: dt.datetime
+        self,
+        city,
+        db_dir: str,
+        start_date: dt.datetime | None = None,
+        end_date: dt.datetime | None = None,
     ):
         self.city = city
 

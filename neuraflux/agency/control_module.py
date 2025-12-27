@@ -2,6 +2,7 @@ import datetime as dt
 import json
 import logging as log
 import os
+import warnings
 from typing import Any
 
 import dill
@@ -41,7 +42,12 @@ class ControlModule(Module):
 
     def __init__(self, base_dir: str):
         super().__init__(base_dir)
-        self.cache_registry: dict[str : dict[str:DDQNPREstimator]] = {}
+        warnings.warn(
+            "ControlModule is deprecated and not used by `Simulation`; prefer `neuraflux.agency.agent.Agent`.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.cache_registry: dict[str, dict[str, DDQNPREstimator]] = {}
 
     def rl_training(
         self,

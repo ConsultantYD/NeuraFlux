@@ -31,6 +31,7 @@ class Weather:
         self.city = city
         self.table_name = f"{city.lower().replace(' ', '_')}_weather"
         self.db_path = os.path.join(db_dir, WEATHER_DB_NAME)
+        self.preloaded = False
 
         # Check if data needs to be preloaded
         conn = create_connection_to_db(self.db_path)
@@ -42,6 +43,7 @@ class Weather:
                 start_date=start_date,
                 end_date=end_date,
             )
+            self.preloaded = True
         conn.close()
 
         # Load weather data in memory
@@ -85,8 +87,21 @@ def preload_weather_data(
 
     # Fetch weather data
     location = Point(lat, lon, alt)
-    retriever = Hourly(location, start_date, end_date)
-    weather_data = retriever.fetch()
+    # meteostat<=1.6.8 uses "1H" internally (pandas warns; use "1h"). Patch at runtime without
+    # modifying the dependency.
+    original_freq = getattr(Hourly, "_freq", None)
+    patched = False
+    if original_freq == "1H":
+        Hourly._freq = "1h"  # type: ignore[attr-defined]
+        patched = True
+    try:
+        retriever = Hourly(location, start_date, end_date)
+        if getattr(retriever, "_freq", None) == "1H":
+            retriever._freq = "1h"
+        weather_data = retriever.fetch()
+    finally:
+        if patched:
+            Hourly._freq = original_freq  # type: ignore[attr-defined]
     weather_data.reset_index(inplace=True)  # Reset index to make 'time' a column
 
     # Interpolate to minute-level granularity

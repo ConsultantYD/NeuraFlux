@@ -430,13 +430,13 @@ class EvDrTouGhgProduct(Product):
         hour = time.hour
         seed = time.day
 
-        np.random.seed(seed)  # Set the seed for reproducibility
+        rng = np.random.RandomState(seed)  # noqa: NPY002 (legacy RNG; kept for reproducibility)
 
         # Get the base value from the hardcoded array
         base_value = self.duck_curve_values[hour]
 
         # Add random variation to the value, e.g., +/- 5%
-        variation = np.random.uniform(-0.1, 0.1)
+        variation = rng.uniform(-0.1, 0.1)
         final_value = np.clip(base_value + variation, 0, 1)
 
         return final_value
@@ -450,10 +450,10 @@ class EvDrTouGhgProduct(Product):
         """
         # Use the day of the year as the seed
         seed = time.day
-        np.random.seed(seed)
+        rng = np.random.RandomState(seed)  # noqa: NPY002 (legacy RNG; kept for reproducibility)
 
         # Randomly select an hour for the DR event between 5 PM and 8 PM
-        dr_event_hour = np.random.choice([17, 18, 19])  # 5 PM, 6 PM, or 7 PM
+        dr_event_hour = rng.choice([17, 18, 19])  # 5 PM, 6 PM, or 7 PM
 
         # Check if the current hour matches the DR event hour
         return time.hour == dr_event_hour

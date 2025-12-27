@@ -23,6 +23,10 @@ class SimulationTimeConfig(BaseSchema):
 
 class SimulationDataConfig(BaseSchema):
     base_dir: str = "Data Module"
+    # Optional path to a pre-built weather database (file or directory containing `weather.db`).
+    # When set, the file is copied into the simulation output directory before execution,
+    # allowing fully offline and repeatable replays of exogenous weather inputs.
+    weather_db_source: str | None = None
 
 
 class SimulationConfig(BaseSchema):

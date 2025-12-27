@@ -1,9 +1,14 @@
+from __future__ import annotations
+
 import datetime as dt
+import hashlib
 import json
 import logging
 import os
+import platform
 import random
 import shutil
+import sys
 import traceback
 from copy import deepcopy
 from pathlib import Path
@@ -13,8 +18,6 @@ import numpy as np
 import tensorflow as tf
 
 from neuraflux.agency.agent import Agent
-from neuraflux.agency.control_module import ControlModule
-from neuraflux.agency.data_module import DataModule
 from neuraflux.assets.factory import AvailableAssetsEnum
 from neuraflux.geography import CityEnum
 from neuraflux.global_variables import (
@@ -30,6 +33,7 @@ from neuraflux.weather import Weather
 from neuraflux.agency.utils_data import cron_matches
 from neuraflux.logging_utils import StructuredLogHandler
 from neuraflux.global_variables import DT_FILE_STR_FORMAT
+from neuraflux.global_variables import WEATHER_DB_NAME
 
 
 class Simulation:
@@ -79,6 +83,7 @@ class Simulation:
         self.t = self.time_info.t
 
         # Weather
+        self._maybe_copy_weather_db()
         self.weather_ref = self._initialize_weather(
             city=self.config.geography.city,
             db_dir=self.directory,
@@ -142,6 +147,7 @@ class Simulation:
                 agents_controls: dict[str, Any] = {}
                 for uid, agent in self.agents.items():
                     agent.update_time_info(self.time_info)
+                    agent.update_environment_info(oat=self.oat)
                     agents_controls[uid] = agent.run()
 
                 # Increment simulation by one time step
@@ -236,6 +242,13 @@ class Simulation:
     def _build_sim_summary(
         self, status: str, started_at_utc: dt.datetime
     ) -> dict[str, Any]:
+        weather_db_path = os.path.join(self.directory, WEATHER_DB_NAME)
+        weather_db_sha256 = (
+            self._compute_file_sha256(weather_db_path)
+            if os.path.exists(weather_db_path)
+            else None
+        )
+
         agents_summary: dict[str, Any] = {}
         for uid, agent_cfg in self.config.agents.items():
             asset_cfg = self.config.assets.get(uid)
@@ -243,6 +256,7 @@ class Simulation:
                 "asset_type": getattr(asset_cfg, "asset_type", None),
                 "tariff": getattr(agent_cfg, "tariff", None),
                 "product": getattr(agent_cfg, "product", None),
+                "training_summary": f"{uid}/training_summary.json",
             }
 
         return {
@@ -250,11 +264,23 @@ class Simulation:
             "started_at_utc": started_at_utc.strftime(DT_STR_FORMAT),
             "directory": self.directory,
             "seed": self.config.seed,
+            "runtime": {
+                "python": sys.version.split()[0],
+                "platform": platform.platform(),
+                "numpy": getattr(np, "__version__", None),
+                "tensorflow": getattr(tf, "__version__", None),
+            },
             "geography": {"city": self.config.geography.city},
             "time": {
                 "start_time": self.config.time.start_time,
                 "end_time": self.config.time.end_time,
                 "step_size_s": self.config.time.step_size_s,
+            },
+            "weather": {
+                "db": WEATHER_DB_NAME,
+                "db_sha256": weather_db_sha256,
+                "source": getattr(getattr(self.config, "data", None), "weather_db_source", None),
+                "preloaded": getattr(self.weather_ref, "preloaded", None),
             },
             "agent_save_freq_cron": self.config.agent_save_freq_cron,
             "agents": agents_summary,
@@ -399,15 +425,67 @@ class Simulation:
             root_logger.addHandler(handler)
             self._structured_log_handler = handler
 
+    def _compute_file_sha256(self, filepath: str) -> str:
+        h = hashlib.sha256()
+        with open(filepath, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                h.update(chunk)
+        return h.hexdigest()
+
+    def _maybe_copy_weather_db(self) -> None:
+        logger = logging.getLogger(__name__)
+        source = getattr(getattr(self.config, "data", None), "weather_db_source", None)
+        if not source:
+            return
+
+        source_path = Path(source)
+        if source_path.is_dir():
+            source_file = source_path / WEATHER_DB_NAME
+        else:
+            source_file = source_path
+
+        if not source_file.exists():
+            raise FileNotFoundError(
+                f"Weather DB source path does not exist: {source_file}"
+            )
+
+        dest_file = Path(self.directory) / WEATHER_DB_NAME
+        if dest_file.resolve() == source_file.resolve():
+            return
+
+        if dest_file.exists():
+            logger.warning(
+                "weather.db already exists in output directory; refusing to overwrite (%s)",
+                dest_file,
+            )
+            return
+
+        dest_file.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_file, dest_file)
+
     def _fix_seeds(self, seed_value: int) -> None:
         """
         Fixes the random seed for reproducibility. Covers numpy, random, and TensorFlow.
         Args:
             seed_value (int): The seed value to set for random number generation.
         """
+        # Best-effort determinism controls (may depend on TF build / hardware).
+        os.environ.setdefault("TF_DETERMINISTIC_OPS", "1")
+        os.environ.setdefault("TF_CUDNN_DETERMINISTIC", "1")
+
         np.random.seed(seed_value)
         random.seed(seed_value)
         tf.random.set_seed(seed_value)
+        try:
+            tf.keras.utils.set_random_seed(seed_value)
+        except Exception:
+            # Older TF/Keras combos may not expose this helper.
+            pass
+        try:
+            tf.config.experimental.enable_op_determinism()
+        except Exception:
+            # Not supported on all TF versions/platforms.
+            pass
 
     def _initialize_time_reference(
         self, start_time: dt.datetime, step_size_s: int
@@ -442,14 +520,17 @@ class Simulation:
             city=city, db_dir=db_dir, start_date=start_date, end_date=end_date
         )
 
-    def _initialize_modules(self, directory: str) -> list[ControlModule, DataModule]:
+    def _initialize_modules(self, directory: str):
         """
         Initializes the agency modules for the whole simulation.
         Args:
             directory (str): The directory where the modules will be stored.
         Returns:
-            list[ControlModule, DataModule]: A list containing the control and data modules.
+            tuple[ControlModule, DataModule]: The control and data modules.
         """
+        from neuraflux.agency.control_module import ControlModule
+        from neuraflux.agency.data_module import DataModule
+
         control_module = ControlModule(base_dir=directory)
         data_module = DataModule(base_dir=directory)
         return control_module, data_module

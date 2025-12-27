@@ -1,5 +1,6 @@
 import datetime as dt
 import os
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -121,7 +122,36 @@ def read_parquet_table(directory: str, order_by_timestamp: bool = True) -> pd.Da
     Returns:
         pd.DataFrame: The DataFrame containing the data from the parquet file.
     """
-    df = pd.read_parquet(directory)
+    if not os.path.isdir(directory):
+        return pd.DataFrame()
+
+    parquet_files = sorted(Path(directory).rglob("*.parquet"))
+    if not parquet_files:
+        return pd.DataFrame()
+
+    # Fast path: let pyarrow/pandas read the full dataset in one shot.
+    # Some pyarrow versions can error when schemas differ across fragments (e.g., null vs double).
+    try:
+        df = pd.read_parquet(directory)
+    except Exception as e:
+        message = str(e)
+        if "cast_null" not in message and "ArrowNotImplementedError" not in message:
+            raise
+        frames: list[pd.DataFrame] = []
+        for p in parquet_files:
+            frame = pd.read_parquet(p)
+            if frame.empty:
+                continue
+
+            # Avoid pandas FutureWarning about concatenation dtype resolution by dropping
+            # columns which are entirely NA within this fragment.
+            non_all_na_cols = [c for c in frame.columns if frame[c].notna().any()]
+            if non_all_na_cols and len(non_all_na_cols) != len(frame.columns):
+                frame = frame[non_all_na_cols]
+
+            frames.append(frame)
+
+        df = pd.concat(frames, axis=0, ignore_index=True, sort=False) if frames else pd.DataFrame()
     # Order by timestamp, if available and desired
     if order_by_timestamp and TIMESTAMP_KEY in df.columns:
         # Sort by timestamp

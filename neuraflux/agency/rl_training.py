@@ -1,4 +1,5 @@
 import datetime as dt
+import logging as log
 import numpy as np
 
 from neuraflux.agency.ddqn import DDQNPREstimator
@@ -71,7 +72,7 @@ def final_tuning_loop(
     sim_td_errors_list.append(global_err_sim)
 
     # Fitting loop
-    print("FINE-TUNING LOOP: ")
+    log.info("FINE-TUNING LOOP:")
     no_improvement_counter = 0
     while True:
         # Fit Q estimator
@@ -105,7 +106,7 @@ def final_tuning_loop(
         real_td_errors_list.append(global_err_real)
         sim_td_errors_list.append(global_err_sim)
 
-        print(f"    Global error: {global_err}")
+        log.info("    Global error: %s", global_err)
 
         if previous_global_err - global_err >= min_improvement:
             best_q_estimator = q_estimator.copy()
@@ -156,7 +157,7 @@ def inner_simulation_training_loop(
     replay_buffer_sim.update_td_errors(td_errors=td_errors_rmse_sim)
 
     # Get experience samples (e_real and e_sim) from replay buffer
-    print(f"  Sampling {sampling_size} experiences from both PER.")
+    log.info("  Sampling %s experiences from both PER.", sampling_size)
     (batch_exp_sim, priorities_sim, _) = get_info_from_replay_buffer(
         replay_buffer=replay_buffer_sim,
         sampling_size=sampling_size,
@@ -188,7 +189,7 @@ def inner_simulation_training_loop(
     sim_td_errors_list.append(global_err_sim)
 
     # Fitting loop
-    print("  GENERALIZATION LOOP: ")
+    log.info("  GENERALIZATION LOOP:")
     no_improvement_counter = 0
     for j in range(max_inner_iter):
         # Fit Q estimator
@@ -221,7 +222,7 @@ def inner_simulation_training_loop(
         real_td_errors_list.append(global_err_real)
         sim_td_errors_list.append(global_err_sim)
 
-        print(f"    > Global errors: {global_err_real} | {global_err_sim}")
+        log.info("    > Global errors: %s | %s", global_err_real, global_err_sim)
 
         if global_err_real < previous_global_err_real:
             # print("        Improving best Q estimator !")
@@ -238,9 +239,9 @@ def inner_simulation_training_loop(
         err_real_j = q_estimator.compute_td_errors_rmse(batch_exp_real, aggregate=False)
         # TODO: Standardize this with the aggregate = True approach as well
         err_real_j = np.mean(err_real_j)
-        print(f"    > Real sample error: {err_real_j}")
+        log.info("    > Real sample error: %s", err_real_j)
         if err_real_j / err_real_0 < inner_perc_threshold:
-            print("        >> Breaking inner loop, performance reached.")
+            log.info("        >> Breaking inner loop, performance reached.")
             break
 
     return best_q_estimator, real_td_errors_list, sim_td_errors_list

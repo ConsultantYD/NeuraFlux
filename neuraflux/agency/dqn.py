@@ -46,8 +46,14 @@ class DDQNPREstimator:
             try:
                 return self.lite_predict(states)
             except Exception:
-                print("Inference with lite model failed. Switching to full model.")
-                print(traceback.format_exc())
+                log.exception(
+                    {
+                        LOG_SIM_T_KEY: None,
+                        LOG_ENTITY_KEY: "DDQNPREstimator",
+                        LOG_METHOD_KEY: "forward_pass",
+                        LOG_MESSAGE_KEY: "Lite inference failed; falling back to TensorFlow model.",
+                    }
+                )
         tf.compat.v1.get_default_graph().finalize()
         # Copy state and convert to tensor
         states = states.copy()

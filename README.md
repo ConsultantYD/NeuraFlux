@@ -12,11 +12,16 @@
   - [3. Tailored Optimization](#tailored-optimization)
   - [4. Profitable by Design](#profitable-by-design)
 - [Getting Started](#getting-started)
+- [Simulation Artifacts](#simulation-artifacts)
 - [License](#license)
 
 ## Installation
 
-To get started with NeuraFlux, follow these simple steps:
+NeuraFlux is **library-first**: you construct a `SimulationConfig` in Python and run a simulation to produce reproducible artifacts.
+
+Prerequisites:
+- Python `3.11`
+- [Poetry](https://python-poetry.org/docs/)
 
 - **Step 1: Clone the Repository**
 
@@ -24,29 +29,27 @@ To get started with NeuraFlux, follow these simple steps:
 
     ```bash
     git clone https://github.com/YsaelDesage/NeuraFlux.git
+    cd NeuraFlux
     ```
 
 - **Step 2A: Local Install with Poetry**
 
-  The package uses **Poetry** to manage dependencies and virtual environments. If you haven't installed Poetry yet, installation steps can be found [here](https://python-poetry.org/docs/).
-
-  Once Poetry is installed, move to the project directory and run the command below to install all project dependencies:
+  Install dependencies:
 
     ```bash
     poetry install
     ```
 
-  To launch a simulation from Python (config instance), you can use one of the provided examples:
+  Run a small simulation example (recommended for a quick sanity check):
 
     ```bash
-    python main_run_case_study_1.py
-    ```  
+    poetry run python examples/simulations/energy_storage/run_energy_storage.py
+    ```
 
 - **Step 2B: Docker Deployment**
 
-    To run NeuraFlux inside a Docker container, follow these steps:
+    Optional (dashboard development): build and run the Streamlit UI in Docker.
 
-    - **Prepare your environment**: Ensure all simulation files you need are placed in the ```simulation``` directory before building the image. This inclusion is crucial for Docker to copy all necessary files into the container.
     - **Build the Docker Image**: Build the Docker image from the Dockerfile located at the root of the project directory:
 
       ```bash
@@ -88,17 +91,49 @@ Built on a deep reinforcement learning foundation, Neuraflux ensures powerful al
 
 ## Getting Started
 
-To launch a new simulation, build a `SimulationConfig` in Python and run it (see `main_run_case_study_1.py` and `main_run_case_study_2.py`):
+Run from the repo root (see `examples/simulations/README.md`):
 
-  ```bash
-  python main_run_case_study_1.py
-  ```
+```bash
+poetry run python examples/simulations/energy_storage/run_energy_storage.py
+poetry run python examples/simulations/commercial_building/run_commercial_building.py
+```
 
-To launch **NeuraView**, NeuraFlux's dashboard, you can use the command:
+Both example scripts are **constant-config**: edit the constants at the top of the file (e.g. number of days, seed, output root, and whether learning is enabled) and re-run.
+If you want to avoid any weather re-downloads, set `WEATHER_DB_SOURCE` in the example script to point to an existing `weather.db` (or a previous run directory containing one).
 
-  ```bash
-  streamlit run neuraview/main.py
-  ```
+To launch a simulation programmatically, build a `SimulationConfig` and run it:
+
+```python
+from neuraflux.runner import run_simulation
+from neuraflux.schemas.simulation import SimulationConfig
+
+config = SimulationConfig(...)  # build config in Python
+result = run_simulation(config)
+print(result.directory)
+```
+
+The longer case study scripts are available as end-to-end references (they may take longer to run):
+- `main_run_case_study_1.py`
+- `main_run_case_study_2.py`
+
+To launch **NeuraView** (optional), run:
+
+```bash
+poetry run streamlit run neuraview/main.py
+```
+
+## Simulation Artifacts
+
+Each simulation run writes a self-contained artifacts directory under the configured output directory (for the examples: `simulations/examples/.../<run_id>/`).
+
+Downstream analysis (e.g. dashboards) can rely on these artifacts being present:
+- `config.json` (full simulation config)
+- `sim_summary.json` (run status + summary)
+- `time_ref.json` (time reference used by the simulation)
+- `logs.db` (sqlite logs)
+- `agent.pkl` (pickled agent state)
+- per-agent parquet data under `data/` (timestep records) and, if enabled, simulated training data under `sim_data/`
+
 
 ## Case Studies
 

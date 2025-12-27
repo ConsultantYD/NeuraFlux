@@ -1,7 +1,9 @@
 import datetime as dt
 import json
+import logging
 import os
 from copy import copy
+from typing import Any
 
 import dill
 import numpy as np
@@ -29,7 +31,7 @@ from neuraflux.agency.utils_data import (
     read_parquet_table,
     tf_all_cyclic,
 )
-from neuraflux.agency.utils_policies import hvac_policy, q_policy, random_policy
+from neuraflux.agency.utils_policies import fixed_policy, hvac_policy, q_policy, random_policy
 from neuraflux.agency.utils_registries import (
     get_entities_in_registry,
     load_dqn_estimator_from_registry,
@@ -41,13 +43,24 @@ from neuraflux.agency.utils_rl_training import simple_training_loop
 from neuraflux.agency.utils_trajectories import Trajectory
 from neuraflux.global_variables import (
     CONTROL_KEY,
+    DONE_KEY,
     DT_FILE_STR_FORMAT,
+    EPSILON_KEY,
+    INFERENCE_BACKEND_KEY,
+    LOG_ENTITY_KEY,
+    LOG_MESSAGE_KEY,
+    LOG_METHOD_KEY,
+    LOG_SIM_T_KEY,
     MS_AGENT_CONTROL_DATA_KEY,
     MS_AGENT_REAL_TRAINING_KEY,
     MS_AGENT_SIM_DATA_KEY,
     MS_AGENT_SIM_TRAINING_KEY,
     MS_ASSET_SIGNAL_DATA_KEY,
+    MODEL_NAME_KEY,
+    MODEL_TRAINING_TYPE_KEY,
+    POLICY_KEY,
     TIMESTAMP_KEY,
+    CONTROL_SELECTION_ENABLED_KEY,
 )
 from neuraflux.local_typing import AgentInMemoryStorageType, AssetType, UidType
 from neuraflux.schemas.agency import (
@@ -130,6 +143,18 @@ class Agent:
 
         self.epsilon = 1.0
         self.control_ready = False
+        self.oat: float | None = None
+        self._last_control_provenance: dict[str, Any] = {}
+
+        # Ensure a stable training summary artifact exists for downstream consumers.
+        try:
+            os.makedirs(self.directory, exist_ok=True)
+            if not os.path.exists(self._get_training_summary_path()):
+                self._save_training_summary(
+                    {"n_real_trainings": 0, "n_sim_trainings": 0}
+                )
+        except Exception:
+            pass
 
     def __call__(self, *args, **kwargs):
         """
@@ -152,27 +177,64 @@ class Agent:
         """
         action_size = self.config.control.rl_config.action_size
         n_controllers = self.config.control.n_controllers
+        self._last_control_provenance = {}
+
         if policy == "q_policy":
-            q_factors = self.get_q_factors(df=df, use_lite_inference=False)
-            controls = q_policy(q_values=q_factors, **policy_kwargs)
-        elif policy == "random_policy":
-            controls = random_policy(
-                action_size=action_size, n_controllers=n_controllers, **policy_kwargs
+            epsilon = float(policy_kwargs.get("epsilon", 0.0))
+            use_lite_inference = bool(policy_kwargs.get("use_lite_inference", False))
+            q_factors, provenance = self.get_q_factors_for_action(
+                df=df, use_lite_inference=use_lite_inference
             )
+            self._last_control_provenance = provenance
+            controls = q_policy(q_values=q_factors, epsilon=epsilon)
+
+        elif policy == "random_policy":
+            controls = random_policy(action_size=action_size, n_controllers=n_controllers)
+
+        elif policy == "fixed_policy":
+            if "action" in policy_kwargs:
+                action = policy_kwargs["action"]
+            elif "actions" in policy_kwargs:
+                action = policy_kwargs["actions"]
+            else:
+                raise ValueError(
+                    "fixed_policy requires policy_kwargs['action'] (int) "
+                    "or policy_kwargs['actions'] (list[int])."
+                )
+            controls = fixed_policy(action=action, n_controllers=n_controllers)
+            for a in controls:
+                if a < 0 or a >= action_size:
+                    raise ValueError(
+                        f"fixed_policy action {a} out of bounds for action_size={action_size}."
+                    )
+
         elif policy == "hvac_policy":
-            df = self.get_data(start_time=self.time_info.t-dt.timedelta(seconds=300*24))
-            q_factors = self.get_q_factors(df=df, use_lite_inference=False)
+            if df is None:
+                df = self.get_data(start_time=self.time_info.t - dt.timedelta(days=1))
+
+            epsilon = float(policy_kwargs.get("epsilon", 0.0))
+            comfort_constraint = bool(policy_kwargs.get("comfort_constraint", True))
+            use_lite_inference = bool(policy_kwargs.get("use_lite_inference", False))
+            q_factors, provenance = self.get_q_factors_for_action(
+                df=df, use_lite_inference=use_lite_inference
+            )
+            self._last_control_provenance = provenance
+
             state_cols = get_x_columns(self.config)
             temp = df.loc[df.index[-1], state_cols].values
             sp_vec = df.loc[df.index[-1], ["heat_setpoint", "cool_setpoint"]].values
             sp = (sp_vec[0], sp_vec[1])
             controls = hvac_policy(
-                temperatures=temp, setpoints=sp, q_values=q_factors, **policy_kwargs
+                temperatures=temp,
+                setpoints=sp,
+                q_values=q_factors,
+                epsilon=epsilon,
+                comfort_constraint=comfort_constraint,
             )
+
         else:
-            raise ValueError(
-                f"Unknown policy {policy}. Please check the configuration."
-            )
+            raise ValueError(f"Unknown policy {policy}. Please check the configuration.")
+
         return controls
 
     def get_state_prediction(
@@ -254,6 +316,7 @@ class Agent:
         """
         Run the agent for a given time step.
         """
+        logger = logging.getLogger(__name__)
 
         # 1. Collect asset data
         self.asset_data_collection()
@@ -271,13 +334,32 @@ class Agent:
             controls = self.get_control(policy=policy, policy_kwargs=policy_kwargs)
             output_controls = [DiscreteControl(c) for c in controls]
         else:
-            output_controls = self.asset.get_auto_control(self.time_info.t, 10.0)
+            if self.oat is None:
+                raise ValueError(
+                    "Agent is missing outside air temperature (oat); call update_environment_info(oat=...) before run()."
+                )
+            output_controls = self.asset.get_auto_control(self.time_info.t, self.oat)
             controls = [c.value for c in output_controls]
         # Store control taken in memory
+        policy_name = policy if control_selection_config.enabled else "auto_control"
+        epsilon = None
+        if control_selection_config.enabled and policy in {"q_policy", "hvac_policy"}:
+            epsilon = float(policy_kwargs.get("epsilon", 0.0))
+
         self._push_data_dict_to_memory_storage(
             storage_key=MS_AGENT_CONTROL_DATA_KEY,
             data_dict={
-                CONTROL_KEY + f"_{i+1}": controls[i] for i in range(len(controls))
+                **{CONTROL_KEY + f"_{i+1}": controls[i] for i in range(len(controls))},
+                CONTROL_SELECTION_ENABLED_KEY: bool(control_selection_config.enabled),
+                POLICY_KEY: policy_name,
+                EPSILON_KEY: epsilon,
+                MODEL_NAME_KEY: self._last_control_provenance.get(MODEL_NAME_KEY),
+                MODEL_TRAINING_TYPE_KEY: self._last_control_provenance.get(
+                    MODEL_TRAINING_TYPE_KEY
+                ),
+                INFERENCE_BACKEND_KEY: self._last_control_provenance.get(
+                    INFERENCE_BACKEND_KEY
+                ),
             },
             timestamp=self.time_info.t,
         )
@@ -298,12 +380,23 @@ class Agent:
         ):
             n_samples = sim_lr_config.n_samples
             n_traj_per_sample = sim_lr_config.n_traj_per_sample
-            reward = self.get_data(start_time=self.time_info.t - dt.timedelta(days=1))[
-                "reward"
-            ].sum()
-            print(f"Reward in the last 1 day: {round(reward, 2)}")
-            print(
-                f"{self.time_info.t}: Simulated RL training (n={n_samples}x{n_traj_per_sample}) ..."
+            recent_df = self.get_data(start_time=self.time_info.t - dt.timedelta(days=1))
+            product = AvailableProductsEnum.from_string(self.config.product)
+            reward_cols = [c for c in product.get_reward_names() if c in recent_df.columns]
+            reward_sum = (
+                float(recent_df[reward_cols].sum().sum()) if reward_cols else None
+            )
+            logger.info(
+                {
+                    LOG_SIM_T_KEY: self.time_info.t,
+                    LOG_ENTITY_KEY: f"Agent({self.uid})",
+                    LOG_METHOD_KEY: "run",
+                    LOG_MESSAGE_KEY: (
+                        "Simulated RL training trigger"
+                        f" (n_samples={n_samples}, n_traj_per_sample={n_traj_per_sample}, "
+                        f"reward_sum_last_day={reward_sum})"
+                    ),
+                }
             )
             self.simulated_rl_training(
                 n_samples=n_samples,
@@ -320,6 +413,14 @@ class Agent:
         )
         rl_train_freq = real_lr_config.trigger_freq_cron
         if real_lr_config.enabled and cron_matches(self.time_info.t, rl_train_freq):
+            logger.info(
+                {
+                    LOG_SIM_T_KEY: self.time_info.t,
+                    LOG_ENTITY_KEY: f"Agent({self.uid})",
+                    LOG_METHOD_KEY: "run",
+                    LOG_MESSAGE_KEY: "Real-data RL training trigger",
+                }
+            )
             self.rl_training()
         return output_controls
 
@@ -399,19 +500,20 @@ class Agent:
         q_factors: bool = False,
     ):
         # Get latest data from the in-memory storage, and use datetime index
-        memory_df = self.get_in_memory_data()
+        memory_raw_df = self.get_in_memory_data()
+        memory_df: pd.DataFrame | None = None
 
-        if len(memory_df) > 0:
-            memory_df.sort_values(by=TIMESTAMP_KEY, inplace=True)
-            memory_df[TIMESTAMP_KEY] = pd.to_datetime(memory_df[TIMESTAMP_KEY])
-            memory_df.set_index(TIMESTAMP_KEY, inplace=True)
+        if len(memory_raw_df) > 0:
+            memory_raw_df.sort_values(by=TIMESTAMP_KEY, inplace=True)
+            memory_raw_df[TIMESTAMP_KEY] = pd.to_datetime(memory_raw_df[TIMESTAMP_KEY])
+            memory_raw_df.set_index(TIMESTAMP_KEY, inplace=True)
 
             # Augment the data with additional useful columns
-            df = memory_df
+            df = memory_raw_df
             df = add_vm_data_to_df(df, self.cpm)
             df = add_tariff_data_to_df(df, self.config.tariff)
             df = add_product_data_to_df(df, self.config.product)
-            memory_df = tf_all_cyclic(df)
+            memory_df = self._coerce_agent_data_schema(tf_all_cyclic(df))
             # TODO: Add q_factors data
 
             # Return directly in-memory data if sufficient for user request
@@ -422,16 +524,30 @@ class Agent:
                 return memory_df
 
         # Get longer-term data from the database
-        long_term_data = self.get_database_data()
-        if len(memory_df) == 0:
-            df = long_term_data
+        long_term_data = self._coerce_agent_data_schema(self.get_database_data())
+
+        frames: list[pd.DataFrame] = []
+        if isinstance(long_term_data, pd.DataFrame) and not long_term_data.empty:
+            frames.append(long_term_data)
+
+        if memory_df is not None and not memory_df.empty:
+            mem = memory_df.reset_index()
+            frames.append(mem)
+
+        if len(frames) == 0:
+            df = pd.DataFrame()
+        elif len(frames) == 1:
+            df = frames[0].copy()
         else:
-            memory_df.reset_index(inplace=True)
-            df = pd.concat([long_term_data, df], axis=0, ignore_index=True)
+            df = pd.concat(frames, axis=0, ignore_index=True, sort=False)
+            df = self._coerce_agent_data_schema(df)
+
+        if df.empty:
+            return df
 
         # Add Q-factors data if requested
         if q_factors:
-            q_factors = self.get_q_factors(df)
+            q_factors = self.get_q_factors(df, use_lite_inference=False)
 
             seq_len = self.config.control.rl_config.history_length
             action_size = self.config.control.rl_config.action_size
@@ -454,6 +570,55 @@ class Agent:
             df = df.loc[df.index >= start_time]
         if end_time is not None:
             df = df.loc[df.index < end_time]
+
+        return df
+
+    def _coerce_agent_data_schema(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Ensure agent dataframes (memory + parquet) have a stable schema/dtypes across timesteps.
+
+        This avoids pyarrow dataset read failures when different parquet fragments have null-only
+        columns (e.g. epsilon/model provenance) or when a timestep is partially recorded.
+        """
+        df = df.copy()
+
+        n_controllers = int(getattr(getattr(self.config, "control", None), "n_controllers", 1))
+
+        # Controls (nullable int)
+        for i in range(n_controllers):
+            col = CONTROL_KEY + f"_{i+1}"
+            if col not in df.columns:
+                df[col] = pd.Series([pd.NA] * len(df), dtype="Int64")
+            else:
+                df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
+
+        # Control selection + provenance
+        if CONTROL_SELECTION_ENABLED_KEY not in df.columns:
+            df[CONTROL_SELECTION_ENABLED_KEY] = pd.Series(
+                [pd.NA] * len(df), dtype="boolean"
+            )
+        else:
+            df[CONTROL_SELECTION_ENABLED_KEY] = df[CONTROL_SELECTION_ENABLED_KEY].astype(
+                "boolean"
+            )
+
+        if POLICY_KEY not in df.columns:
+            df[POLICY_KEY] = pd.Series([pd.NA] * len(df), dtype="string")
+        else:
+            df[POLICY_KEY] = df[POLICY_KEY].astype("string")
+
+        if EPSILON_KEY not in df.columns:
+            df[EPSILON_KEY] = pd.Series([np.nan] * len(df), dtype="float64")
+        else:
+            df[EPSILON_KEY] = pd.to_numeric(df[EPSILON_KEY], errors="coerce").astype(
+                "float64"
+            )
+
+        for key in (MODEL_NAME_KEY, MODEL_TRAINING_TYPE_KEY, INFERENCE_BACKEND_KEY):
+            if key not in df.columns:
+                df[key] = pd.Series([pd.NA] * len(df), dtype="string")
+            else:
+                df[key] = df[key].astype("string")
 
         return df
 
@@ -538,21 +703,33 @@ class Agent:
 
         return final_df
 
-    def get_q_estimators_list(self, registry_dir: str | None = None) -> list[str]:
+    def get_q_estimators_list(
+        self, registry_dir: str | None = None, *, training_type: str = "real"
+    ) -> list[str]:
         """
         Get the list of Q estimators for the agent, sorted by creation time.
 
         Args:
             registry_dir (str | None): The directory for the Q estimator registry. Defaults to None,
                 which uses the agent's directory.
+            training_type (str): One of {"real", "sim", "any"}; defaults to "real" to avoid mixing
+                simulated-training checkpoints into production inference.
         Returns:
             list[str]: The list of Q estimators for the agent.
         """
         registry_dir = self.dqn_registry_dir if registry_dir is None else registry_dir
         available_estimators = get_entities_in_registry(registry_dir)
-        agent_available_estimators = sorted(
-            [e for e in available_estimators if e.startswith(self.uid)]
-        )
+        agent_available_estimators = [e for e in available_estimators if e.startswith(self.uid)]
+        match training_type:
+            case "real":
+                agent_available_estimators = [e for e in agent_available_estimators if not e.endswith("_sim")]
+            case "sim":
+                agent_available_estimators = [e for e in agent_available_estimators if e.endswith("_sim")]
+            case "any":
+                pass
+            case _:
+                raise ValueError(f"Unknown training_type={training_type!r}; expected 'real', 'sim', or 'any'.")
+        agent_available_estimators = sorted(agent_available_estimators)
         return agent_available_estimators
 
     def get_q_estimator(
@@ -572,16 +749,35 @@ class Agent:
         registry_dir = self.dqn_registry_dir if registry_dir is None else registry_dir
         # Case 1 - User directly specified the name of the estimator
         if name is not None:
-            return load_dqn_estimator_from_registry(registry_dir, name=name)
+            estimator, metadata = load_dqn_estimator_from_registry(registry_dir, name=name)
+            metadata = {} if metadata is None else dict(metadata)
+            metadata.setdefault("name", name)
+            metadata.setdefault("training_type", "sim" if name.endswith("_sim") else "real")
+            return estimator, metadata
 
-        agent_available_estimators = self.get_q_estimators_list(
-            registry_dir=registry_dir
+        agent_available_real_estimators = self.get_q_estimators_list(
+            registry_dir=registry_dir, training_type="real"
+        )
+        agent_available_sim_estimators = self.get_q_estimators_list(
+            registry_dir=registry_dir, training_type="sim"
         )
 
-        # Case 2 - User did not specify the name of the estimator, but some are available
-        if agent_available_estimators:
-            latest_estimator = agent_available_estimators[-1]
-            return load_dqn_estimator_from_registry(registry_dir, name=latest_estimator)
+        # Case 2 - Use the latest available estimator (prefer real over simulated).
+        if agent_available_real_estimators or agent_available_sim_estimators:
+            latest_estimator = (
+                agent_available_real_estimators[-1]
+                if agent_available_real_estimators
+                else agent_available_sim_estimators[-1]
+            )
+            estimator, metadata = load_dqn_estimator_from_registry(
+                registry_dir, name=latest_estimator
+            )
+            metadata = {} if metadata is None else dict(metadata)
+            metadata.setdefault("name", latest_estimator)
+            metadata.setdefault(
+                "training_type", "sim" if latest_estimator.endswith("_sim") else "real"
+            )
+            return estimator, metadata
 
         # Case 3 - No estimators available, create a new one
         rl_config = self.config.control.rl_config
@@ -593,10 +789,10 @@ class Agent:
             n_controllers=self.config.control.n_controllers,
             # NOTE: Other entries will be overwritten at fit time
         )
-        return estimator, {}
+        return estimator, {"name": None, "training_type": None}
 
     def get_q_factors(
-        self, df: pd.DataFrame | None = None, use_lite_inference: bool = True
+        self, df: pd.DataFrame | None = None, use_lite_inference: bool = False
     ) -> list[np.ndarray]:
         """
         Get the Q factors for the agent.
@@ -615,9 +811,65 @@ class Agent:
         q_estimator, _ = self.get_q_estimator(self.dqn_registry_dir)
         states = np.array(convert_data_to_state(df, state_columns, rl_seq_len))
 
-        q_factors = q_estimator.forward_pass(states)
+        if use_lite_inference and states.shape[0] != 1:
+            raise ValueError(
+                "Lite inference only supports batch size 1; use get_q_factors_for_action() for control selection."
+            )
+
+        q_factors = (
+            q_estimator.lite_predict(states)
+            if use_lite_inference
+            else q_estimator.forward_pass(states, lite_model=False)
+        )
 
         return q_factors
+
+    def get_q_factors_for_action(
+        self, df: pd.DataFrame | None = None, *, use_lite_inference: bool = False
+    ) -> tuple[list[np.ndarray], dict[str, Any]]:
+        rl_config = self.config.control.rl_config
+        rl_seq_len = rl_config.history_length
+        if df is None:
+            df = self.get_rl_data_for_timestamp()
+
+        state_columns = get_full_state_signals_from_rl_config(rl_config)
+        q_estimator, q_estimator_meta = self.get_q_estimator(self.dqn_registry_dir)
+        model_name = q_estimator_meta.get("name")
+        model_training_type = q_estimator_meta.get("training_type")
+
+        states_list = convert_data_to_state(df, state_columns, rl_seq_len)
+        if len(states_list) == 0:
+            raise ValueError(
+                "Insufficient data to build an RL state sequence "
+                f"(need at least history_length={rl_seq_len} rows)."
+            )
+        states_last = np.array(states_list[-1:])  # (1, seq_len, state_size)
+
+        inference_backend = "tensorflow"
+        if use_lite_inference:
+            try:
+                q_factors = q_estimator.lite_predict(states_last)
+                inference_backend = "tflite"
+            except Exception:
+                logger = logging.getLogger(__name__)
+                logger.exception(
+                    {
+                        LOG_SIM_T_KEY: getattr(getattr(self, "time_info", None), "t", None),
+                        LOG_ENTITY_KEY: f"Agent({self.uid})",
+                        LOG_METHOD_KEY: "get_q_factors_for_action",
+                        LOG_MESSAGE_KEY: "Lite inference failed; falling back to TensorFlow model.",
+                    }
+                )
+                q_factors = q_estimator.forward_pass(states_last, lite_model=False)
+        else:
+            q_factors = q_estimator.forward_pass(states_last, lite_model=False)
+
+        provenance: dict[str, Any] = {
+            MODEL_NAME_KEY: model_name,
+            MODEL_TRAINING_TYPE_KEY: model_training_type,
+            INFERENCE_BACKEND_KEY: inference_backend,
+        }
+        return q_factors, provenance
 
     def get_replay_buffer(
         self, simulation: bool = False, registry_dir: str | None = None
@@ -681,7 +933,7 @@ class Agent:
         df = add_vm_data_to_df(df, self.cpm)
         df = add_tariff_data_to_df(df, self.config.tariff)
         df = add_product_data_to_df(df, self.config.product)
-        df = tf_all_cyclic(df)
+        df = self._coerce_agent_data_schema(tf_all_cyclic(df))
 
         # Convert the index to a column
         df.reset_index(inplace=True)
@@ -744,6 +996,17 @@ class Agent:
         )
 
     def rl_training(self) -> None:
+        training_started_at = dt.datetime.utcnow()
+        logger = logging.getLogger(__name__)
+        logger.info(
+            {
+                LOG_SIM_T_KEY: self.time_info.t,
+                LOG_ENTITY_KEY: f"Agent({self.uid})",
+                LOG_METHOD_KEY: "rl_training",
+                LOG_MESSAGE_KEY: "Starting real-data RL training",
+            }
+        )
+
         # Define start time based on previous trainings (all if first time)
         start_time = None
         if hasattr(self, "last_rl_training_end"):
@@ -756,13 +1019,32 @@ class Agent:
         # Update scaler with dataframe
         # self.data_module.update_scaler_info_from_df(self.uid, df=history)
 
-        # Remove rows with NaN values
-        n_samples_before = history.shape[0]
-        history = history.dropna()
-        n_samples_after = history.shape[0]
-        # If any rows were removed, raise an error
-        if n_samples_after != n_samples_before:
-            raise ValueError("NaN values detected in training data.")
+        rl_config = self.config.control.rl_config
+        state_columns = get_full_state_signals_from_rl_config(rl_config)
+        control_columns = [
+            CONTROL_KEY + f"_{i+1}" for i in range(rl_config.n_controllers)
+        ]
+        product = AvailableProductsEnum.from_string(self.config.product)
+        reward_columns = product.get_reward_names()
+        required_cols = list(
+            dict.fromkeys([*state_columns, *control_columns, *reward_columns, DONE_KEY])
+        )
+
+        missing_cols = [c for c in required_cols if c not in history.columns]
+        if missing_cols:
+            raise ValueError(
+                "Training data missing required RL columns "
+                f"(missing={missing_cols})."
+            )
+
+        # Only validate columns used by the RL pipeline; metadata columns may legitimately be null.
+        if history[required_cols].isna().any().any():
+            bad_rows = history[required_cols].isna().any(axis=1)
+            sample = history.loc[bad_rows, required_cols].head(10)
+            raise ValueError(
+                "NaN values detected in training data for required RL columns. "
+                f"Sample:\n{sample}"
+            )
 
         # Add new data in the replay buffer
         self.push_data_to_replay_buffer(
@@ -806,6 +1088,29 @@ class Agent:
             overwrite=True,
         )
 
+        training_ended_at = dt.datetime.utcnow()
+        summary = self._load_training_summary()
+        summary["n_real_trainings"] = int(summary.get("n_real_trainings", 0)) + 1
+        summary["last_real_training_time"] = self.time_info.get_t_as_str()
+        summary["last_real_model_name"] = estimator_name
+        summary["last_real_buffer_n_experiences"] = int(buffer_metadata.get("n_experiences", len(buffer)))
+        summary["last_real_training_duration_s"] = (
+            training_ended_at - training_started_at
+        ).total_seconds()
+        self._save_training_summary(summary)
+
+        logger.info(
+            {
+                LOG_SIM_T_KEY: self.time_info.t,
+                LOG_ENTITY_KEY: f"Agent({self.uid})",
+                LOG_METHOD_KEY: "rl_training",
+                LOG_MESSAGE_KEY: (
+                    "Completed real-data RL training "
+                    f"(model_name={estimator_name}, duration_s={summary['last_real_training_duration_s']})"
+                ),
+            }
+        )
+
         del buffer, q_estimator, estimator_metadata, history
 
     def simulate_trajectory_at_time(
@@ -844,8 +1149,21 @@ class Agent:
             controls = self.get_control(
                 policy=policy, policy_kwargs=policy_kwargs, df=rl_df
             )
+            epsilon = None
+            if policy in {"q_policy", "hvac_policy"}:
+                epsilon = float(policy_kwargs.get("epsilon", 0.0))
             control_record = {
-                f"control_{i+1}": controls[i] for i in range(len(controls))
+                **{f"control_{i+1}": controls[i] for i in range(len(controls))},
+                CONTROL_SELECTION_ENABLED_KEY: True,
+                POLICY_KEY: policy,
+                EPSILON_KEY: epsilon,
+                MODEL_NAME_KEY: self._last_control_provenance.get(MODEL_NAME_KEY),
+                MODEL_TRAINING_TYPE_KEY: self._last_control_provenance.get(
+                    MODEL_TRAINING_TYPE_KEY
+                ),
+                INFERENCE_BACKEND_KEY: self._last_control_provenance.get(
+                    INFERENCE_BACKEND_KEY
+                ),
             }
             traj.add_control_record(t_sim, control_record)
 
@@ -880,6 +1198,20 @@ class Agent:
         policy: str = "q_policy",
         policy_kwargs: dict = {"epsilon": 0.5},
     ) -> None:
+        training_started_at = dt.datetime.utcnow()
+        logger = logging.getLogger(__name__)
+        logger.info(
+            {
+                LOG_SIM_T_KEY: self.time_info.t,
+                LOG_ENTITY_KEY: f"Agent({self.uid})",
+                LOG_METHOD_KEY: "simulated_rl_training",
+                LOG_MESSAGE_KEY: (
+                    "Starting simulated RL training "
+                    f"(n_samples={n_samples}, n_traj_per_sample={n_traj_per_sample}, traj_len={traj_len}, policy={policy})"
+                ),
+            }
+        )
+
         # Download necessary data
         history_len = self.config.control.rl_config.history_length
         df = self.get_data(start_time=start_time, end_time=end_time)
@@ -899,6 +1231,15 @@ class Agent:
         )
 
         # Loop and generate trajectory samples, saving them in buffer
+        rl_config = self.config.control.rl_config
+        state_columns = get_full_state_signals_from_rl_config(rl_config)
+        control_columns = [
+            CONTROL_KEY + f"_{i+1}" for i in range(rl_config.n_controllers)
+        ]
+        product = AvailableProductsEnum.from_string(self.config.product)
+        reward_columns = product.get_reward_names()
+        required_cols = list(dict.fromkeys([*state_columns, *control_columns, *reward_columns, DONE_KEY]))
+
         trajectories_list = []
         for t in samples_batch:
             for _ in range(n_traj_per_sample):
@@ -910,10 +1251,22 @@ class Agent:
                     policy_kwargs=policy_kwargs,
                 )
 
-                # Raise error if NaN values in traj df
-                if traj_df.isna().any().any():
+                missing_cols = [c for c in required_cols if c not in traj_df.columns]
+                if missing_cols:
                     raise ValueError(
-                        f"NaN values detected in simulated trajectory at time {t}. \n {traj_df}"
+                        "Simulated trajectory missing required RL columns "
+                        f"(missing={missing_cols})."
+                    )
+
+                # Raise error if NaN values in required RL columns
+                if traj_df[required_cols].isna().any().any():
+                    debug_cols = required_cols
+                    for extra in (POLICY_KEY, CONTROL_SELECTION_ENABLED_KEY):
+                        if extra in traj_df.columns and extra not in debug_cols:
+                            debug_cols = [*debug_cols, extra]
+                    raise ValueError(
+                        f"NaN values detected in simulated trajectory at time {t} "
+                        f"for required_cols={required_cols}. \n {traj_df[debug_cols]}"
                     )
 
                 # Add trajectory to the list
@@ -988,6 +1341,29 @@ class Agent:
             overwrite=True,
         )
 
+        training_ended_at = dt.datetime.utcnow()
+        summary = self._load_training_summary()
+        summary["n_sim_trainings"] = int(summary.get("n_sim_trainings", 0)) + 1
+        summary["last_sim_training_time"] = self.time_info.get_t_as_str()
+        summary["last_sim_model_name"] = estimator_name
+        summary["last_sim_buffer_n_experiences"] = int(buffer_metadata.get("n_experiences", len(buffer)))
+        summary["last_sim_training_duration_s"] = (
+            training_ended_at - training_started_at
+        ).total_seconds()
+        self._save_training_summary(summary)
+
+        logger.info(
+            {
+                LOG_SIM_T_KEY: self.time_info.t,
+                LOG_ENTITY_KEY: f"Agent({self.uid})",
+                LOG_METHOD_KEY: "simulated_rl_training",
+                LOG_MESSAGE_KEY: (
+                    "Completed simulated RL training "
+                    f"(model_name={estimator_name}, duration_s={summary['last_sim_training_duration_s']})"
+                ),
+            }
+        )
+
         del buffer, q_estimator, estimator_metadata, traj_df
 
     def to_file(self, directory: str = "") -> None:
@@ -1009,6 +1385,24 @@ class Agent:
         """
         self.time_info = time_info
         self._generate_shortcuts()
+
+    def update_environment_info(self, *, oat: float | None = None) -> None:
+        self.oat = oat
+
+    def _get_training_summary_path(self) -> str:
+        return os.path.join(self.directory, "training_summary.json")
+
+    def _load_training_summary(self) -> dict[str, Any]:
+        filepath = self._get_training_summary_path()
+        if not os.path.exists(filepath):
+            return {}
+        with open(filepath, "r") as f:
+            return json.load(f)
+
+    def _save_training_summary(self, summary: dict[str, Any]) -> None:
+        filepath = self._get_training_summary_path()
+        with open(filepath, "w") as f:
+            json.dump(summary, f, indent=2, sort_keys=True, default=str)
 
     def save_config(self, filepath: str) -> None:
         """

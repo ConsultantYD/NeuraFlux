@@ -1,4 +1,5 @@
 import os
+import json
 from logging import StreamHandler
 
 import pandas as pd
@@ -21,31 +22,47 @@ class StructuredLogHandler(StreamHandler):
         super().__init__()
         self.db_filepath = os.path.join(db_dir, LOGGING_DB_NAME)
         self.conn = create_connection_to_db(self.db_filepath)
+        self._ensure_schema()
+
+    def _ensure_schema(self) -> None:
+        # Ensure the DB file is a valid SQLite database (non-empty header) and
+        # dashboards can reliably query the expected tables even if no logs are
+        # emitted during a run.
+        cur = self.conn.cursor()
+        cur.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS execution_logs (
+                "{LOG_TIMESTAMP_KEY}" REAL,
+                "{LOG_MODULE_KEY}" TEXT,
+                "{LOG_LEVEL_KEY}" TEXT,
+                "{LOG_SIM_T_KEY}" TEXT,
+                "{LOG_ENTITY_KEY}" TEXT,
+                "{LOG_METHOD_KEY}" TEXT,
+                "{LOG_MESSAGE_KEY}" TEXT
+            );
+            """
+        )
+        self.conn.commit()
 
     def emit(self, record):
         message_level = record.levelname
         module = record.module
         creation_time = record.created
-        logging_dict = record.msg
+        payload = record.msg
 
-        # Verify input is a dict
-        if not isinstance(logging_dict, dict):
-            return
+        if isinstance(payload, dict):
+            sim_time = payload.get(LOG_SIM_T_KEY)
+            entity = payload.get(LOG_ENTITY_KEY)
+            method = payload.get(LOG_METHOD_KEY)
+            message = payload.get(LOG_MESSAGE_KEY)
+            if message is None:
+                message = json.dumps(payload, default=str)
+        else:
+            sim_time = None
+            entity = None
+            method = None
+            message = record.getMessage()
 
-        sim_time = (
-            None if LOG_SIM_T_KEY not in logging_dict else logging_dict[LOG_SIM_T_KEY]
-        )
-        entity = (
-            None if LOG_ENTITY_KEY not in logging_dict else logging_dict[LOG_ENTITY_KEY]
-        )
-        method = (
-            None if LOG_METHOD_KEY not in logging_dict else logging_dict[LOG_METHOD_KEY]
-        )
-        message = (
-            None
-            if LOG_MESSAGE_KEY not in logging_dict
-            else logging_dict[LOG_MESSAGE_KEY]
-        )
         log_df = pd.DataFrame(
             {
                 LOG_TIMESTAMP_KEY: [creation_time],
