@@ -40,6 +40,14 @@ CONTROL_KEY = "control"
 REWARD_KEY = "reward"
 DONE_KEY = "done"
 
+# Agent provenance (stored in per-agent parquet and logs)
+POLICY_KEY = "policy"
+EPSILON_KEY = "epsilon"
+MODEL_NAME_KEY = "model_name"
+MODEL_TRAINING_TYPE_KEY = "model_training_type"
+INFERENCE_BACKEND_KEY = "inference_backend"
+CONTROL_SELECTION_ENABLED_KEY = "control_selection_enabled"
+
 TARIFF_KEY = "tariff_$"
 PRICE_KEY = "price_$"
 

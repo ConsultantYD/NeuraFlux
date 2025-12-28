@@ -1,6 +1,7 @@
 import datetime as dt
 import json
 import os
+import warnings
 
 import h5py
 import numpy as np
@@ -43,6 +44,11 @@ class DataModule(Module):
 
     def __init__(self, base_dir: str = ""):
         super().__init__(base_dir)
+        warnings.warn(
+            "DataModule is deprecated and not used by `Simulation`; prefer the per-agent parquet artifacts produced by `Agent`.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.agent_signals_cache = {}
         self.agent_trajectory_columns_cache = {}
 
