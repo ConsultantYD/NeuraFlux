@@ -1,8 +1,6 @@
 import datetime as dt
 from pathlib import Path
 
-import pytest
-
 from neuraflux.geography import CityEnum
 from neuraflux.global_variables import OAT_KEY
 from neuraflux.schemas.agency import (

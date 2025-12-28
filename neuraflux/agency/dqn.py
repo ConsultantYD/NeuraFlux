@@ -1,6 +1,5 @@
 import logging as log
 import os
-import traceback
 from copy import copy
 from dataclasses import dataclass
 from shutil import rmtree

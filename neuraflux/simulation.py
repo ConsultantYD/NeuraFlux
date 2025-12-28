@@ -708,6 +708,7 @@ class Simulation:
         Args:
             seed_value (int): The seed value to set for random number generation.
         """
+        logger = logging.getLogger(__name__)
         # Best-effort determinism controls (may depend on TF build / hardware).
         os.environ.setdefault("TF_DETERMINISTIC_OPS", "1")
         os.environ.setdefault("TF_CUDNN_DETERMINISTIC", "1")
@@ -717,14 +718,20 @@ class Simulation:
         tf.random.set_seed(seed_value)
         try:
             tf.keras.utils.set_random_seed(seed_value)
-        except Exception:
+        except (AttributeError, TypeError):
             # Older TF/Keras combos may not expose this helper.
-            pass
+            logger.debug(
+                "TensorFlow/Keras set_random_seed helper not available; skipping.",
+                exc_info=True,
+            )
         try:
             tf.config.experimental.enable_op_determinism()
-        except Exception:
+        except (AttributeError, RuntimeError):
             # Not supported on all TF versions/platforms.
-            pass
+            logger.debug(
+                "TensorFlow op determinism toggle not available; skipping.",
+                exc_info=True,
+            )
 
     def _initialize_time_reference(
         self, start_time: dt.datetime, step_size_s: int

@@ -186,14 +186,19 @@ class Agent:
         self._last_control_provenance: dict[str, Any] = {}
 
         # Ensure a stable training summary artifact exists for downstream consumers.
+        training_summary_path = self._get_training_summary_path()
         try:
             os.makedirs(self.directory, exist_ok=True)
-            if not os.path.exists(self._get_training_summary_path()):
+            if not os.path.exists(training_summary_path):
                 self._save_training_summary(
                     {"n_real_trainings": 0, "n_sim_trainings": 0}
                 )
-        except Exception:
-            pass
+        except OSError:
+            logging.getLogger(__name__).debug(
+                "Could not initialize training summary artifact at %s; continuing without it.",
+                training_summary_path,
+                exc_info=True,
+            )
 
     def __call__(self, *args, **kwargs):
         """Call-through to :meth:`run`."""
