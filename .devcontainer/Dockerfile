@@ -1,6 +1,11 @@
 # Use the official Python image with Python 3.11
 FROM python:3.11-slim
 
+# Install git (VS Code source control needs the git CLI in the container)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 # Set the working directory in the container
 WORKDIR /app
 
@@ -16,6 +21,3 @@ RUN poetry config virtualenvs.create false \
 
 # Expose the port Streamlit runs on
 EXPOSE 8501
-
-# Command to run the Streamlit application
-CMD ["python", "main_run_sim.py"]

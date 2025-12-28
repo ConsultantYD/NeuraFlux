@@ -10,9 +10,9 @@ from neuraflux.schemas.control import DiscreteControl
 
 class ElectricVehicle(Asset):
     def get_availability(self, timestamp: dt.datetime) -> int:
-        np.random.seed(timestamp.day)
-        morning_delta = int(np.random.randint(0, 18))
-        afternoon_delta = int(np.random.randint(0, 18))
+        rng = np.random.RandomState(timestamp.day)  # noqa: NPY002 (legacy RNG; kept for reproducibility)
+        morning_delta = int(rng.randint(0, 18))
+        afternoon_delta = int(rng.randint(0, 18))
 
         new_timestamp = timestamp
 

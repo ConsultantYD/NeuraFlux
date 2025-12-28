@@ -13,6 +13,26 @@ def random_policy(action_size: int, n_controllers: int):
     return [int(np.random.randint(0, action_size)) for _ in range(n_controllers)]
 
 
+def fixed_policy(
+    *, action: int | list[int] | tuple[int, ...], n_controllers: int
+) -> list[int]:
+    """
+    Fixed policy that always returns the same action(s).
+
+    Args:
+        action: Either a single discrete action (applied to all controllers) or
+            an explicit per-controller sequence of actions.
+        n_controllers: Number of controllers.
+    """
+    if isinstance(action, (list, tuple)):
+        if len(action) != n_controllers:
+            raise ValueError(
+                f"fixed_policy expected {n_controllers} actions, got {len(action)}."
+            )
+        return [int(a) for a in action]
+    return [int(action) for _ in range(n_controllers)]
+
+
 def q_policy(q_values: list[np.array], epsilon: float):
     """
     Epsilon-greedy policy based on Q-values.

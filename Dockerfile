@@ -1,5 +1,5 @@
 # Use the official Python image with Python 3.11
-FROM python:3.11-slim
+FROM python:3.11-bookworm
 
 # Set the working directory in the container
 WORKDIR /app

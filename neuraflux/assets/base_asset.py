@@ -178,8 +178,17 @@ class Asset(metaclass=RequiredClassVarsMeta):
     def get_signal(self, signal: str) -> Any:
         if hasattr(self, signal):
             return getattr(self, signal)
-        for k, v in self.__dict__.items():
-            print(f"{k}: {v}")
+        log.warning(
+            {
+                LOG_SIM_T_KEY: getattr(self, "timestamp", None),
+                LOG_ENTITY_KEY: self.name,
+                LOG_METHOD_KEY: "get_signal",
+                LOG_MESSAGE_KEY: (
+                    f"Unknown signal '{signal}' requested; returning NaN. "
+                    f"Available keys: {sorted(self.__dict__.keys())}"
+                ),
+            }
+        )
         return np.nan
 
     def get_historical_data(self, nan_padding: bool = False) -> pd.DataFrame:

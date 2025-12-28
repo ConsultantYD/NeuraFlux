@@ -1,3 +1,16 @@
+"""Pydantic schemas for agent configuration.
+
+These schemas define the configuration contract consumed by the simulation runner and
+agent control/training loops.
+
+Scheduling model:
+
+- Several configs are expressed as dicts keyed by elapsed seconds since simulation start.
+  The active entry is selected by taking the greatest key ``<= elapsed_time``.
+- Cron expressions are evaluated at minute resolution (see
+  :func:`neuraflux.agency.utils_data.cron_matches`).
+"""
+
 from enum import Enum, unique
 from typing import Any, Literal
 
@@ -21,6 +34,8 @@ class ScalingMetadata(BaseSchema):
 # REINFORCEMENT LEARNING CONFIGS
 # ----------------------------------------------------------------------------
 class RLConfig(BaseSchema):
+    """Reinforcement-learning state/action configuration."""
+
     # General states and actions
     action_size: int  # Number of possible actions
     state_signals: list[str] | None = None
@@ -35,6 +50,8 @@ class RLConfig(BaseSchema):
 
 
 class RLTrainingConfig(BaseSchema):
+    """Hyperparameters for DQN training loops."""
+
     # Learning
     target_update_period: int = 20  # Number of major target network update loops
     n_fit_epochs: int = 10  # Number of times to fit the DQN to experience
@@ -48,14 +65,27 @@ class RLTrainingConfig(BaseSchema):
 
 
 class RealLearningConfig(BaseSchema):
+    """Configuration for training on real (observed) experience."""
+
     # General and orchestration
     enabled: bool = True  # Whether to enable real learning
     trigger_freq_cron: str = "0 0 * * 1"  # Training frequency
     # Training
-    rl_training_config: RLTrainingConfig = RLTrainingConfig()
+    rl_training_config: RLTrainingConfig = Field(
+        default_factory=lambda: RLTrainingConfig(
+            learning_rate=5e-4,
+            experience_sampling_size=512,
+            n_fit_epochs=1,
+            n_sampling_iters=10,
+            n_target_iterators=30,
+            tf_batch_size=16,
+        )
+    )
 
 
 class SimLearningConfig(BaseSchema):
+    """Configuration for training on simulated trajectories."""
+
     # General and orchestration
     enabled: bool = True  # Whether to enable simulation training
     trigger_freq_cron: str = "0 0 * * *"  # Training frequency
@@ -67,7 +97,16 @@ class SimLearningConfig(BaseSchema):
     policy: Literal["random_policy", "q_policy", "hvac_policy"] = "hvac_policy"
     policy_kwargs: dict[str, object] = {"epsilon": 0.5, "comfort_constraint": False}
     # Training
-    rl_training_config: RLTrainingConfig = RLTrainingConfig()
+    rl_training_config: RLTrainingConfig = Field(
+        default_factory=lambda: RLTrainingConfig(
+            learning_rate=1e-4,
+            experience_sampling_size=256,
+            n_fit_epochs=1,
+            n_sampling_iters=10,
+            n_target_iterators=15,
+            tf_batch_size=8,
+        )
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -99,12 +138,21 @@ class SignalInfo(BaseSchema):
 
 
 class ControlSelectionConfig(BaseSchema):
+    """Policy selection configuration for online control."""
+
     enabled: bool = True
-    policy: Literal["random_policy", "q_policy", "hvac_policy"] = "q_policy"
+    policy: Literal["random_policy", "q_policy", "hvac_policy", "fixed_policy"] = "q_policy"
     policy_kwargs: dict[str, object] = {}
 
 
 class AgentControlConfig(BaseSchema):
+    """Control, policy scheduling, and learning configuration for an agent.
+
+    The ``*_configs`` fields are duration-indexed dicts keyed by elapsed seconds since
+    the simulation start time. This enables warmup periods (e.g. auto-control for the
+    first week) followed by policy switching and training enablement.
+    """
+
     n_controllers: int
     control_selection: dict[int, ControlSelectionConfig] = Field(
         default_factory=lambda: {
@@ -132,6 +180,8 @@ class AgentControlConfig(BaseSchema):
 
 
 class AgentDataConfig(BaseSchema):
+    """Signal definitions and data persistence configuration for an agent."""
+
     control_power_mapping: dict[int, float]
     tracked_signals: list[str]
     signals_info: dict[str, SignalInfo]
@@ -139,6 +189,8 @@ class AgentDataConfig(BaseSchema):
 
 
 class AgentConfig(BaseSchema):
+    """Top-level agent configuration (control, data, product, and tariff)."""
+
     asset_metadata: dict[str, Any] = {
         "address": "123 Fake St, Anytown, CA",
         "timezone": "America/Toronto",
