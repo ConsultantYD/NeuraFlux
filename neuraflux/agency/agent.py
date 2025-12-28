@@ -61,6 +61,7 @@ from neuraflux.global_variables import (
     POLICY_KEY,
     TIMESTAMP_KEY,
     CONTROL_SELECTION_ENABLED_KEY,
+    OAT_KEY,
 )
 from neuraflux.local_typing import AgentInMemoryStorageType, AssetType, UidType
 from neuraflux.schemas.agency import (
@@ -178,6 +179,7 @@ class Agent:
         action_size = self.config.control.rl_config.action_size
         n_controllers = self.config.control.n_controllers
         self._last_control_provenance = {}
+        self._last_effective_policy = policy
 
         if policy == "q_policy":
             epsilon = float(policy_kwargs.get("epsilon", 0.0))
@@ -210,11 +212,61 @@ class Agent:
 
         elif policy == "hvac_policy":
             if df is None:
-                df = self.get_data(start_time=self.time_info.t - dt.timedelta(days=1))
+                df = self.get_rl_data_for_timestamp()
 
             epsilon = float(policy_kwargs.get("epsilon", 0.0))
             comfort_constraint = bool(policy_kwargs.get("comfort_constraint", True))
             use_lite_inference = bool(policy_kwargs.get("use_lite_inference", False))
+            # If no trained estimator exists yet, fall back to the default controller
+            # computed from the provided dataframe (works for both real control and
+            # simulated trajectories, without relying on the live asset's internal state).
+            _, q_estimator_meta = self.get_q_estimator(self.dqn_registry_dir)
+            if q_estimator_meta.get("name") is None:
+                self._last_control_provenance = {
+                    MODEL_NAME_KEY: None,
+                    MODEL_TRAINING_TYPE_KEY: None,
+                    INFERENCE_BACKEND_KEY: None,
+                }
+                self._last_effective_policy = "auto_control"
+
+                if df.empty:
+                    raise ValueError(
+                        "hvac_policy fallback requires a non-empty dataframe of observations."
+                    )
+
+                decision_row = df.iloc[-1]
+                state_cols = get_x_columns(self.config)
+                temperatures = (
+                    pd.to_numeric(decision_row[state_cols], errors="coerce")
+                    .astype(float)
+                    .to_numpy()
+                )
+                heat_sp = float(decision_row["heat_setpoint"])
+                cool_sp = float(decision_row["cool_setpoint"])
+
+                hvac_cols = [f"hvac_{i+1}" for i in range(n_controllers)]
+                if all(c in df.columns for c in hvac_cols):
+                    hvac_states = (
+                        pd.to_numeric(decision_row[hvac_cols], errors="coerce")
+                        .fillna(0.0)
+                        .astype(float)
+                        .to_numpy()
+                    )
+                else:
+                    hvac_states = np.zeros(n_controllers, dtype=float)
+
+                controls = []
+                for hvac_state, temp in zip(hvac_states, temperatures):
+                    if temp > cool_sp:
+                        # Keep stage 2 on if it was already on, or if gap is large
+                        controls.append(0 if hvac_state == -2 or temp - cool_sp > 1 else 1)
+                    elif temp < heat_sp:
+                        # Keep stage 2 on if it was already on, or if gap is large
+                        controls.append(4 if hvac_state == 2 or heat_sp - temp > 1 else 3)
+                    else:
+                        controls.append(2)
+                return [int(c) for c in controls]
+
             q_factors, provenance = self.get_q_factors_for_action(
                 df=df, use_lite_inference=use_lite_inference
             )
@@ -263,9 +315,20 @@ class Agent:
                 )
 
         # Retrieve controls
-        control_cols = [c for c in df.columns if CONTROL_KEY in c]
-        n_controls = len(control_cols)
-        controls = df.loc[df.index == prev_t, control_cols].values.reshape(n_controls)
+        n_controls = int(getattr(getattr(self.config, "control", None), "n_controllers", 1))
+        control_cols = [CONTROL_KEY + f"_{i+1}" for i in range(n_controls)]
+        missing_control_cols = [c for c in control_cols if c not in df.columns]
+        if missing_control_cols:
+            raise ValueError(
+                "Missing control columns required for state prediction "
+                f"(missing={missing_control_cols}, available={list(df.columns)})."
+            )
+        control_frame = df.loc[df.index == prev_t, control_cols]
+        if control_frame.empty:
+            raise ValueError(
+                f"No control row found at prev_t={prev_t} for state prediction."
+            )
+        controls = control_frame.values.reshape(n_controls)
         # -------------------------------------------------
         # INFER STATE
         # -------------------------------------------------
@@ -274,18 +337,53 @@ class Agent:
 
         # Commercial Building
         if asset_type == "commercial building":
-            previous_state = df.loc[df.index == prev_t, state_cols].values.reshape(
-                n_state_cols
+            previous_state = (
+                df.loc[df.index == prev_t, state_cols]
+                .values.reshape(n_state_cols)
+                .astype(float)
             )
-            new_state_values = previous_state + 0.25 * (controls - 2)
+
+            # Approximate the Building RC model directly using the asset's matrices.
+            if self.asset is None or not hasattr(self.asset, "Uinv"):
+                raise ValueError(
+                    "Commercial building state prediction requires an initialized Building asset."
+                )
+
+            if OAT_KEY in df.columns:
+                oat = float(df.loc[df.index == prev_t, [OAT_KEY]].values.reshape(-1)[0])
+            else:
+                oat = float(self.oat) if self.oat is not None else 0.0
+
+            controls_int = controls.astype(int)
+            power_vec = np.array(
+                [
+                    float(self.cpm[a]) if a in (2, 3, 4) else -float(self.cpm[a])
+                    for a in controls_int
+                ],
+                dtype=float,
+            )
+
+            # Match Building._update_room_temperature() semantics
+            Q_hvac = power_vec * 1000.0
+            Q_in = np.zeros(len(Q_hvac), dtype=float)
+            term1 = np.dot(self.asset.F, oat)
+            term2 = np.multiply(
+                self.asset.C.T / (self.asset.config.dt * 60), previous_state
+            ).flatten()
+            Q = Q_hvac + Q_in + term1 + term2
+            new_state_values = np.dot(Q, self.asset.Uinv).diagonal()
             new_state_dict = {
-                col: val for col, val in zip(state_cols, new_state_values)
+                col: float(val) for col, val in zip(state_cols, new_state_values)
             }
+            # Predict HVAC state at the next timestep (used as an observation/RL feature).
+            # HVAC stages are encoded as control_value - 2, matching Building.step().
+            for i in range(n_controls):
+                new_state_dict[f"hvac_{i+1}"] = float(controls_int[i] - 2)
         elif asset_type == "energy storage":
             previous_internal_energy = df.loc[df.index == prev_t, state_cols].values.reshape(
                 n_state_cols
             )
-            power = self.cpm[controls[0]]
+            power = self.cpm[int(controls[0])]
             max_energy = self.config.data.signals_info["internal_energy"].max_value
             
             # If the internal energy is 0, we cannot deliver power
@@ -341,10 +439,14 @@ class Agent:
             output_controls = self.asset.get_auto_control(self.time_info.t, self.oat)
             controls = [c.value for c in output_controls]
         # Store control taken in memory
-        policy_name = policy if control_selection_config.enabled else "auto_control"
+        if control_selection_config.enabled:
+            policy_name = getattr(self, "_last_effective_policy", None) or policy
+        else:
+            policy_name = "auto_control"
         epsilon = None
-        if control_selection_config.enabled and policy in {"q_policy", "hvac_policy"}:
+        if policy_name in {"q_policy", "hvac_policy"}:
             epsilon = float(policy_kwargs.get("epsilon", 0.0))
+        self._last_effective_policy = None
 
         self._push_data_dict_to_memory_storage(
             storage_key=MS_AGENT_CONTROL_DATA_KEY,
@@ -747,6 +849,15 @@ class Agent:
             tuple[DDQNPREstimator, dict]: The Q estimator for the agent and its metadata.
         """
         registry_dir = self.dqn_registry_dir if registry_dir is None else registry_dir
+
+        # Fast path: reuse the in-memory estimator for online control to avoid
+        # reloading TensorFlow models from disk on every timestep.
+        if name is None and registry_dir == self.dqn_registry_dir:
+            cached = getattr(self, "_cached_q_estimator", None)
+            cached_meta = getattr(self, "_cached_q_estimator_meta", None)
+            if cached is not None and cached_meta is not None:
+                return cached, dict(cached_meta)
+
         # Case 1 - User directly specified the name of the estimator
         if name is not None:
             estimator, metadata = load_dqn_estimator_from_registry(registry_dir, name=name)
@@ -777,6 +888,9 @@ class Agent:
             metadata.setdefault(
                 "training_type", "sim" if latest_estimator.endswith("_sim") else "real"
             )
+            if registry_dir == self.dqn_registry_dir:
+                self._cached_q_estimator = estimator
+                self._cached_q_estimator_meta = dict(metadata)
             return estimator, metadata
 
         # Case 3 - No estimators available, create a new one
@@ -789,7 +903,11 @@ class Agent:
             n_controllers=self.config.control.n_controllers,
             # NOTE: Other entries will be overwritten at fit time
         )
-        return estimator, {"name": None, "training_type": None}
+        metadata = {"name": None, "training_type": None}
+        if registry_dir == self.dqn_registry_dir:
+            self._cached_q_estimator = estimator
+            self._cached_q_estimator_meta = dict(metadata)
+        return estimator, metadata
 
     def get_q_factors(
         self, df: pd.DataFrame | None = None, use_lite_inference: bool = False
@@ -837,13 +955,19 @@ class Agent:
         model_name = q_estimator_meta.get("name")
         model_training_type = q_estimator_meta.get("training_type")
 
-        states_list = convert_data_to_state(df, state_columns, rl_seq_len)
-        if len(states_list) == 0:
+        # Fast path: only build the last sequence needed for action selection.
+        state_frame = df[state_columns].tail(rl_seq_len)
+        if len(state_frame) < rl_seq_len:
             raise ValueError(
                 "Insufficient data to build an RL state sequence "
                 f"(need at least history_length={rl_seq_len} rows)."
             )
-        states_last = np.array(states_list[-1:])  # (1, seq_len, state_size)
+        if state_frame.isna().any().any():
+            raise ValueError(
+                "NaN or NA values found in the RL state columns used for action selection. "
+                f"Bad columns: {state_frame.columns[state_frame.isna().any()].tolist()}"
+            )
+        states_last = state_frame.to_numpy(dtype=np.float32)[None, :, :]  # (1, seq_len, state_size)
 
         inference_backend = "tensorflow"
         if use_lite_inference:
@@ -1057,13 +1181,21 @@ class Agent:
         )
         q_estimator, _ = self.get_q_estimator(registry_dir=self.dqn_registry_dir)
 
-        # Training loop
-        for _ in range(30):
+        # Training loop (config-driven)
+        real_lr_config: RealLearningConfig = get_active_config_based_on_duration(
+            duration_s=self.get_elapsed_time(),
+            config_dict=self.config.control.real_learning_configs,
+        )
+        train_cfg = real_lr_config.rl_training_config
+        for _ in range(int(train_cfg.n_target_iterators)):
             q_estimator, buffer, _ = simple_training_loop(
                 replay_buffer=buffer,
                 q_estimator=q_estimator,
-                sampling_size=512,
-                learning_rate=5e-4
+                n_sampling_iters=int(train_cfg.n_sampling_iters),
+                sampling_size=int(train_cfg.experience_sampling_size),
+                learning_rate=float(train_cfg.learning_rate),
+                tf_n_fit_epochs=int(train_cfg.n_fit_epochs),
+                tf_batch_size=int(train_cfg.tf_batch_size),
             )
             q_estimator.update_target_model()
 
@@ -1076,6 +1208,11 @@ class Agent:
             estimator=q_estimator,
             metadata=estimator_metadata,
         )
+        self._cached_q_estimator = q_estimator
+        self._cached_q_estimator_meta = {
+            "name": estimator_name,
+            "training_type": "real",
+        }
 
         # Save the replay buffer to the registry
         buffer_name = self.uid + "_real"
@@ -1215,20 +1352,47 @@ class Agent:
         # Download necessary data
         history_len = self.config.control.rl_config.history_length
         df = self.get_data(start_time=start_time, end_time=end_time)
-
-        # Convert the pandas DatetimeIndex to an array of Python datetime objects
-        datetime_index = df.index.to_pydatetime()
-
-        # Now sample from this array of Python datetime objects
-        samples_batch = (
-            datetime_index[history_len : -(history_len + traj_len)]
-            if n_samples is None
-            else np.random.choice(
-                datetime_index[history_len : -(history_len + traj_len)],
-                n_samples,
-                replace=False,
+        if df.empty:
+            logger.warning(
+                {
+                    LOG_SIM_T_KEY: self.time_info.t,
+                    LOG_ENTITY_KEY: f"Agent({self.uid})",
+                    LOG_METHOD_KEY: "simulated_rl_training",
+                    LOG_MESSAGE_KEY: "Skipping simulated RL training: no data available.",
+                }
             )
-        )
+            return
+
+        eligible = df.index.to_pydatetime()[history_len : -(history_len + traj_len)]
+        if len(eligible) == 0:
+            logger.warning(
+                {
+                    LOG_SIM_T_KEY: self.time_info.t,
+                    LOG_ENTITY_KEY: f"Agent({self.uid})",
+                    LOG_METHOD_KEY: "simulated_rl_training",
+                    LOG_MESSAGE_KEY: (
+                        "Skipping simulated RL training: insufficient data for sampling "
+                        f"(history_len={history_len}, traj_len={traj_len}, n_rows={len(df)})."
+                    ),
+                }
+            )
+            return
+
+        if n_samples is None:
+            samples_batch = eligible
+        else:
+            n_samples_effective = min(int(n_samples), len(eligible))
+            if n_samples_effective <= 0:
+                logger.warning(
+                    {
+                        LOG_SIM_T_KEY: self.time_info.t,
+                        LOG_ENTITY_KEY: f"Agent({self.uid})",
+                        LOG_METHOD_KEY: "simulated_rl_training",
+                        LOG_MESSAGE_KEY: "Skipping simulated RL training: n_samples_effective <= 0.",
+                    }
+                )
+                return
+            samples_batch = np.random.choice(eligible, n_samples_effective, replace=False)
 
         # Loop and generate trajectory samples, saving them in buffer
         rl_config = self.config.control.rl_config
@@ -1307,14 +1471,21 @@ class Agent:
             registry_dir=self.dqn_registry_dir
         )
 
-        # Training loop
-        for _ in range(15):
+        # Training loop (config-driven)
+        sim_lr_config: SimLearningConfig = get_active_config_based_on_duration(
+            duration_s=self.get_elapsed_time(),
+            config_dict=self.config.control.sim_learning_configs,
+        )
+        train_cfg = sim_lr_config.rl_training_config
+        for _ in range(int(train_cfg.n_target_iterators)):
             q_estimator, buffer, _ = simple_training_loop(
                 replay_buffer=buffer,
                 q_estimator=q_estimator,
-                learning_rate=1e-4,
-                sampling_size=256,
-                tf_batch_size=8
+                n_sampling_iters=int(train_cfg.n_sampling_iters),
+                sampling_size=int(train_cfg.experience_sampling_size),
+                learning_rate=float(train_cfg.learning_rate),
+                tf_n_fit_epochs=int(train_cfg.n_fit_epochs),
+                tf_batch_size=int(train_cfg.tf_batch_size),
             )
             q_estimator.update_target_model()
 
@@ -1329,6 +1500,11 @@ class Agent:
             estimator=q_estimator,
             metadata=estimator_metadata,
         )
+        self._cached_q_estimator = q_estimator
+        self._cached_q_estimator_meta = {
+            "name": estimator_name,
+            "training_type": "sim",
+        }
 
         # Save the replay buffer to the registry
         buffer_name = self.uid + "_sim"

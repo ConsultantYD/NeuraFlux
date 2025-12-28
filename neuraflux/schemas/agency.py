@@ -52,7 +52,16 @@ class RealLearningConfig(BaseSchema):
     enabled: bool = True  # Whether to enable real learning
     trigger_freq_cron: str = "0 0 * * 1"  # Training frequency
     # Training
-    rl_training_config: RLTrainingConfig = RLTrainingConfig()
+    rl_training_config: RLTrainingConfig = Field(
+        default_factory=lambda: RLTrainingConfig(
+            learning_rate=5e-4,
+            experience_sampling_size=512,
+            n_fit_epochs=1,
+            n_sampling_iters=10,
+            n_target_iterators=30,
+            tf_batch_size=16,
+        )
+    )
 
 
 class SimLearningConfig(BaseSchema):
@@ -67,7 +76,16 @@ class SimLearningConfig(BaseSchema):
     policy: Literal["random_policy", "q_policy", "hvac_policy"] = "hvac_policy"
     policy_kwargs: dict[str, object] = {"epsilon": 0.5, "comfort_constraint": False}
     # Training
-    rl_training_config: RLTrainingConfig = RLTrainingConfig()
+    rl_training_config: RLTrainingConfig = Field(
+        default_factory=lambda: RLTrainingConfig(
+            learning_rate=1e-4,
+            experience_sampling_size=256,
+            n_fit_epochs=1,
+            n_sampling_iters=10,
+            n_target_iterators=15,
+            tf_batch_size=8,
+        )
+    )
 
 
 # ----------------------------------------------------------------------------

@@ -15,11 +15,14 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 
 from neuraflux.agency.agent import Agent
 from neuraflux.assets.factory import AvailableAssetsEnum
 from neuraflux.geography import CityEnum
+from neuraflux.agency.products import AvailableProductsEnum
+from neuraflux.agency.utils_data import add_product_data_to_df, add_tariff_data_to_df, add_vm_data_to_df
 from neuraflux.global_variables import (
     CONTROL_KEY,
     DT_STR_FORMAT,
@@ -34,6 +37,12 @@ from neuraflux.agency.utils_data import cron_matches
 from neuraflux.logging_utils import StructuredLogHandler
 from neuraflux.global_variables import DT_FILE_STR_FORMAT
 from neuraflux.global_variables import WEATHER_DB_NAME
+from neuraflux.global_variables import (
+    ENERGY_KEY,
+    PRICE_KEY,
+    REWARD_KEY,
+    TARIFF_KEY,
+)
 
 
 class Simulation:
@@ -212,6 +221,13 @@ class Simulation:
             except Exception:
                 logger.exception("Failed to write time_ref.json")
 
+            # Compute and persist rollup metrics (real asset vs default/shadow control)
+            try:
+                metrics = self._compute_metrics()
+                self._write_json_file(os.path.join(self.directory, "metrics.json"), metrics)
+            except Exception:
+                logger.exception("Failed to write metrics.json")
+
             self.sim_summary.update(
                 {
                     "status": status,
@@ -286,6 +302,7 @@ class Simulation:
             "agents": agents_summary,
             "artifacts": {
                 "config": "config.json",
+                "metrics": "metrics.json",
                 "summary": "sim_summary.json",
                 "time_ref": "time_ref.json",
                 "logs_db": "logs.db",
@@ -297,6 +314,113 @@ class Simulation:
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, "w") as f:
             json.dump(data, f, indent=2, sort_keys=True, default=str)
+
+    def _compute_metrics(self) -> dict[str, Any]:
+        metrics: dict[str, Any] = {"agents": {}}
+
+        for uid, agent_cfg in self.config.agents.items():
+            cpm = self.config.agents[uid].data.control_power_mapping
+            tariff = self.config.agents[uid].tariff
+            product = self.config.agents[uid].product
+
+            real_df = self.assets[uid].get_historical_data()
+            shadow_df = self.shadow_assets[uid].get_historical_data()
+
+            metrics["agents"][uid] = {
+                "real": self._compute_rollup_metrics_for_df(
+                    df=real_df,
+                    control_power_mapping=cpm,
+                    tariff=tariff,
+                    product=product,
+                ),
+                "shadow": self._compute_rollup_metrics_for_df(
+                    df=shadow_df,
+                    control_power_mapping=cpm,
+                    tariff=tariff,
+                    product=product,
+                ),
+            }
+
+            # Convenience deltas for dashboards
+            real_rollup = metrics["agents"][uid]["real"]
+            shadow_rollup = metrics["agents"][uid]["shadow"]
+            for k in (
+                "reward_total",
+                "tariff_cost_total",
+                "energy_kwh_total",
+                "discomfort_c_total",
+                "comfort_violation_timesteps",
+            ):
+                rv = real_rollup.get(k)
+                sv = shadow_rollup.get(k)
+                if rv is not None and sv is not None:
+                    metrics["agents"][uid][f"delta_{k}"] = float(rv) - float(sv)
+
+        return metrics
+
+    def _compute_rollup_metrics_for_df(
+        self,
+        *,
+        df: pd.DataFrame,
+        control_power_mapping: dict[int, float],
+        tariff: str,
+        product: str,
+    ) -> dict[str, Any]:
+        if df is None or df.empty:
+            return {"n_rows": 0}
+
+        df = df.copy()
+        df.index = pd.to_datetime(df.index)
+
+        df = add_vm_data_to_df(df, control_power_mapping)
+        df = add_tariff_data_to_df(df, tariff)
+        df = add_product_data_to_df(df, product)
+
+        out: dict[str, Any] = {
+            "n_rows": int(df.shape[0]),
+            "start_time": df.index.min().strftime(DT_STR_FORMAT),
+            "end_time": df.index.max().strftime(DT_STR_FORMAT),
+        }
+
+        if ENERGY_KEY in df.columns:
+            out["energy_kwh_total"] = float(df[ENERGY_KEY].sum())
+        if TARIFF_KEY in df.columns:
+            out["tariff_cost_total"] = float(df[TARIFF_KEY].sum())
+        if PRICE_KEY in df.columns:
+            out["price_total"] = float(df[PRICE_KEY].sum())
+
+        reward_cols = []
+        try:
+            reward_cols = [
+                c for c in AvailableProductsEnum.from_string(product).get_reward_names() if c in df.columns
+            ]
+        except Exception:
+            reward_cols = [c for c in df.columns if c.startswith(REWARD_KEY)]
+
+        if reward_cols:
+            out["reward_total"] = float(df[reward_cols].sum().sum())
+            out["reward_breakdown_total"] = {
+                c: float(df[c].sum()) for c in reward_cols if c in df.columns
+            }
+
+        # Comfort rollups (if temperatures + setpoints available)
+        temp_cols = [c for c in df.columns if c.startswith("temperature_")]
+        if temp_cols and "cool_setpoint" in df.columns and "heat_setpoint" in df.columns:
+            sp_cool = df["cool_setpoint"].astype(float).values
+            sp_heat = df["heat_setpoint"].astype(float).values
+            discomfort = np.zeros(df.shape[0], dtype=float)
+            for col in temp_cols:
+                temps = df[col].astype(float).values
+                too_hot = np.maximum(temps - sp_cool, 0.0)
+                too_cold = np.maximum(sp_heat - temps, 0.0)
+                discomfort += too_hot + too_cold
+            out["discomfort_c_total"] = float(discomfort.sum())
+            out["comfort_violation_timesteps"] = int((discomfort > 0.0).sum())
+
+        if "power" in df.columns:
+            out["power_kw_peak"] = float(pd.to_numeric(df["power"], errors="coerce").max())
+
+        return out
 
     def _finalize_agent_artifacts(
         self, uid: str, agent: Agent, agent_directory: str

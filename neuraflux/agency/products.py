@@ -79,30 +79,66 @@ class HVACTariffAndComfortProduct(Product):
     def calculate_rewards(self, df: pd.DataFrame) -> np.ndarray:
         df = df.copy()
 
-        # Energy
-        mult_factor = 10  # Scale energy-related reward
-        energy_reward = -df[TARIFF_KEY].values * mult_factor
-        reward = energy_reward
+        # Energy / cost
+        # NOTE: Keep tariff-related reward as-is and add an explicit energy term to
+        # make learning signals robust even when tariff units vary across datasets.
+        # Tariff cost is the primary signal for this product (comfort is handled below).
+        # Tariff values may be small depending on dataset/unit conventions, so keep a large
+        # scaling factor here to provide a usable learning signal without changing tariff math.
+        tariff_weight = 10000.0
+        reward = -df[TARIFF_KEY].astype(float).values * tariff_weight
 
         # Comfort
+        # Reward is associated with the (state, action) at time t, but comfort
+        # is observed on the next state after applying the control. We therefore
+        # evaluate discomfort using the next-timestep temperatures and setpoints.
         temp_cols = [col for col in df.columns if "temperature_" in col]
-        sp_cool = df["cool_setpoint"].values
-        sp_heat = df["heat_setpoint"].values
+        sp_cool_now = df["cool_setpoint"].astype(float).values
+        sp_heat_now = df["heat_setpoint"].astype(float).values
+        sp_cool_next = np.roll(sp_cool_now, -1)
+        sp_heat_next = np.roll(sp_heat_now, -1)
+        sp_cool_next[-1] = sp_cool_now[-1]
+        sp_heat_next[-1] = sp_heat_now[-1]
         for col in temp_cols:
+            temps_now = df[col].astype(float).values
+            temps_next = np.roll(temps_now, -1)
+            temps_next[-1] = temps_now[-1]
             # Calculate discomfort as the absolute deviation from
             # cooling setpoint if warmer, or heating setpoint if colder
             # 0 otherwise
+            comfort_weight = 10.0
             reward += np.where(
-                df[col].values > sp_cool,
-                -np.square(sp_cool - df[col].values) * 10,
+                temps_next > sp_cool_next,
+                -np.square(temps_next - sp_cool_next) * comfort_weight,
                 np.where(
-                    df[col].values < sp_heat,
-                    -np.square(sp_heat - df[col].values) * 10,
+                    temps_next < sp_heat_next,
+                    -np.square(sp_heat_next - temps_next) * comfort_weight,
                     0,
                 ),
             )
         df[REWARD_KEY] = reward
         return df[[REWARD_KEY]].values
+
+    def add_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+
+        temp_cols = [col for col in df.columns if "temperature_" in col]
+        if not temp_cols or "cool_setpoint" not in df.columns or "heat_setpoint" not in df.columns:
+            return df
+
+        sp_cool = df["cool_setpoint"].astype(float).values
+        sp_heat = df["heat_setpoint"].astype(float).values
+
+        discomfort = np.zeros(df.shape[0], dtype=float)
+        for col in temp_cols:
+            temps = df[col].astype(float).values
+            too_hot = np.maximum(temps - sp_cool, 0.0)
+            too_cold = np.maximum(sp_heat - temps, 0.0)
+            discomfort += too_hot + too_cold
+
+        df["discomfort_c"] = discomfort
+        df["comfort_violation"] = discomfort > 0.0
+        return df
 
     def client_facing_name(self):
         return "HVAC Energy and Comfort Optimization"
