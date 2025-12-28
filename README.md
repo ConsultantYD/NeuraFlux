@@ -40,11 +40,11 @@ Prerequisites:
     poetry install
     ```
 
-  Run a small simulation example (recommended for a quick sanity check):
+	  Run a small simulation example (recommended for a quick sanity check):
 
-    ```bash
-    poetry run python examples/simulations/energy_storage/run_energy_storage.py
-    ```
+	    ```bash
+	    poetry run python examples/simulations/run_sim_energy_storage.py
+	    ```
 
 - **Step 2B: Docker Deployment**
 
@@ -94,8 +94,8 @@ Built on a deep reinforcement learning foundation, Neuraflux ensures powerful al
 Run from the repo root (see `examples/simulations/README.md`):
 
 ```bash
-poetry run python examples/simulations/energy_storage/run_energy_storage.py
-poetry run python examples/simulations/commercial_building/run_commercial_building.py
+poetry run python examples/simulations/run_sim_energy_storage.py
+poetry run python examples/simulations/run_sim_commercial_building.py
 ```
 
 Both example scripts are **constant-config**: edit the constants at the top of the file (e.g. number of days, seed, output root, and whether learning is enabled) and re-run.
