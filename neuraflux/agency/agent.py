@@ -1,3 +1,33 @@
+"""Agent control and learning orchestration.
+
+The :class:`~neuraflux.agency.agent.Agent` encapsulates per-asset logic used during a
+simulation run:
+
+- Collects asset signals every timestep and buffers them in memory.
+- Selects a discrete control action per controller via a configured policy.
+- Periodically flushes buffered timestep records to partitioned parquet on disk.
+- Optionally runs reinforcement-learning (RL) training on real data and on simulated
+  trajectories, driven by elapsed-time config and cron schedules.
+
+Per-agent artifacts (relative to the agent directory):
+
+- ``config.json``: agent configuration (written by :class:`~neuraflux.simulation.Simulation`).
+- ``agent.pkl``: dill snapshot of the agent state for dashboards/debugging.
+- ``training_summary.json``: rolling counters/timestamps for training runs.
+- ``data/``: partitioned parquet of real timestep records (observations + chosen control).
+- ``sim_data/``: partitioned parquet of simulated trajectories (when sim learning is enabled).
+- ``buffer_registry/``: serialized replay buffers (``<uid>_real`` and ``<uid>_sim``).
+- ``dqn_registry/``: serialized estimators (``<uid>_<timestamp>`` and ``<uid>_<timestamp>_sim``).
+
+Scheduling invariants:
+
+- Duration-indexed config dicts in :class:`~neuraflux.schemas.agency.AgentControlConfig` are
+  keyed by elapsed seconds since ``initial_time_info.t``. The active config is the entry
+  with the greatest threshold ``<= elapsed_time``.
+- Cron expressions are evaluated at minute resolution via
+  :func:`~neuraflux.agency.utils_data.cron_matches`.
+"""
+
 import datetime as dt
 import json
 import logging
@@ -75,9 +105,11 @@ from neuraflux.time_ref import TimeInfo
 
 
 class Agent:
-    """
-    Represents an agent in the simulation.
-    The agent is responsible for controlling an asset and interacting with the environment.
+    """Per-asset controller used by :class:`~neuraflux.simulation.Simulation`.
+
+    An agent owns the policy selection logic for an asset and optionally performs RL
+    training. Control selection, data flush cadence, and training triggers are all
+    config-driven (see :class:`~neuraflux.schemas.agency.AgentConfig`).
     """
 
     def __init__(
@@ -90,15 +122,21 @@ class Agent:
         # prediction_module: PredictionModule | None = None,
         time_info: TimeInfo | None = None,
     ) -> None:
-        """
-        Initialize the agent with the given configuration and modules.
+        """Initialize an agent instance.
+
         Args:
-            uid (UidType): Unique identifier for the agent.
-            config (AgentConfig | None): Configuration for the agent. Defaults to None.
-            data_module (DataModule | None): Data module for data retrieval and storage. Defaults to None.
-            control_module (ControlModule | None): Control module for controlling the asset. Defaults to None.
-            prediction_module (PredictionModule | None): Prediction module for forecasting. Defaults to None.
-            time_info (TimeInfo | None): Time information for the simulation. Defaults to None.
+            uid: Unique identifier for the agent. If ``None``, the constructor returns
+                early without initializing attributes (used by :meth:`from_dir`).
+            config: Agent configuration.
+            directory: Base directory for agent artifacts. Subdirectories are created
+                under this path (``data/``, ``sim_data/``, registries, etc.).
+            data_module: Optional data module (currently unused by the simulation runner).
+            control_module: Optional control module (currently unused by the simulation runner).
+            time_info: Simulation time information (required for control selection and scheduling).
+
+        Side Effects:
+            Creates the agent directory structure and ensures ``training_summary.json``
+            exists (best-effort; failures are swallowed to keep simulations running).
         """
         # Return directly if uid is None (used for loading from file)
         if uid is None:
@@ -158,23 +196,30 @@ class Agent:
             pass
 
     def __call__(self, *args, **kwargs):
-        """
-        Utility, call the agent to run its main function.
-        This method is a wrapper around the run method.
-        """
+        """Call-through to :meth:`run`."""
         return self.run(*args, **kwargs)
 
     def get_control(
         self, policy, policy_kwargs: dict, df: pd.DataFrame | None = None
     ) -> list[int]:
-        """
-        Get the control for the agent based on the control selection configuration.
+        """Select discrete control actions for the current timestep.
+
         Args:
-            policy (str): The policy to use for control selection.
-            policy_kwargs (dict): Additional arguments for the policy.
-            df (pd.DataFrame | None): The data to use for control selection. Defaults to None.
+            policy: Policy name. Supported values are ``"q_policy"``, ``"random_policy"``,
+                ``"fixed_policy"``, and ``"hvac_policy"``.
+            policy_kwargs: Policy-specific parameters. Common keys include:
+                ``epsilon`` (for epsilon-greedy selection) and ``use_lite_inference``.
+            df: Optional dataframe of observations used by policies that require state.
+                If omitted, the agent pulls the most recent RL window via
+                :meth:`get_rl_data_for_timestamp`.
+
         Returns:
-            list[DiscreteControl]: The control for the agent.
+            A list of integer actions (one per controller), each in
+            ``[0, action_size)``.
+
+        Raises:
+            ValueError: If ``policy`` is unknown, if required policy inputs are missing,
+                or if a requested fixed action is out of bounds.
         """
         action_size = self.config.control.rl_config.action_size
         n_controllers = self.config.control.n_controllers
@@ -295,14 +340,28 @@ class Agent:
         df: pd.DataFrame,
         asset_type: str | None = None,
     ) -> dict[str, int | float]:
-        """
-        Get the prediction of state variables for the asset at a specific time step.
+        """Predict next-step state variables from a previous timestep.
+
+        This helper is used when generating simulated trajectories. The prediction uses
+        simple, asset-type-specific dynamics:
+
+        - ``"commercial building"``: Uses the building RC model matrices exposed on the
+          initialized asset instance.
+        - ``"energy storage"``: Updates ``internal_energy`` using the control power mapping
+          and a fixed 5-minute timestep (matches the default simulation step).
+
         Args:
-            prev_t (dt.datetime): The time step BEFORE the one to get the state prediction for.
-            df (pd.DataFrame | None): The data to use for state prediction. Defaults to None.
-            asset_type (str | None): The type of asset. Defaults to None.
+            prev_t: The timestep *before* the prediction (controls/state are read at ``prev_t``).
+            df: Historical dataframe containing state signals and control columns at ``prev_t``.
+            asset_type: Optional asset type string. If omitted, the agent uses
+                ``self.asset.__class__.NAME``.
+
         Returns:
-            dict[str, int | float]: The prediction of state variables at the timestep.
+            A mapping of state column name to predicted numeric value for the next timestep.
+
+        Raises:
+            ValueError: If required state/control columns are missing or if the agent is not
+                initialized with a compatible asset implementation.
         """
 
         # Use associated asset to derive type if None
@@ -385,18 +444,18 @@ class Agent:
             )
             power = self.cpm[int(controls[0])]
             max_energy = self.config.data.signals_info["internal_energy"].max_value
-            
+
             # If the internal energy is 0, we cannot deliver power
             if round(previous_internal_energy[0]) == 0 and power < 0:
                 power = 0
             # If the internal energy is at max capacity, we cannot receive power
             elif round(previous_internal_energy[0]) == max_energy and power > 0:
                 power = 0
-            
+
             # Calculate energy difference
             time_difference = dt.timedelta(minutes=5)
             energy_difference = power * time_difference.total_seconds() / 3600
-            
+
             # Update energy - must remain between 0 and max capacity
             internal_energy = previous_internal_energy + energy_difference
             internal_energy = np.clip(internal_energy, 0, max_energy)
@@ -411,8 +470,24 @@ class Agent:
         return new_state_dict
 
     def run(self) -> list[DiscreteControl] | None:
-        """
-        Run the agent for a given time step.
+        """Run one agent step at the current simulation time.
+
+        The step performs, in order:
+
+        1) Collect tracked asset signals into in-memory storage.
+        2) Select and record discrete controls according to the active control-selection
+           config (or fall back to the asset's default controller).
+        3) Flush buffered data to parquet if ``memory_dump_freq_cron`` matches the current time.
+        4) Trigger simulated-data training if enabled and the sim cron matches.
+        5) Trigger real-data training if enabled and the real cron matches.
+
+        Returns:
+            A list of :class:`~neuraflux.schemas.control.DiscreteControl` values to apply to the asset,
+            or ``None`` if the agent does not control an asset at this timestep.
+
+        Raises:
+            ValueError: If required environment information (e.g. ``oat``) is missing when
+                default control is used, or if training is triggered with invalid data.
         """
         logger = logging.getLogger(__name__)
 
@@ -527,10 +602,7 @@ class Agent:
         return output_controls
 
     def asset_data_collection(self):
-        """
-        Collect data from the asset (and shadow asset if available) and
-        stores it in the local data store.
-        """
+        """Collect tracked signals from the assigned asset and buffer them in memory."""
         # Main asset data collection
         tracked_signals = self.config.data.tracked_signals
         asset_signals_dict = collect_signals_from_asset(
@@ -546,20 +618,20 @@ class Agent:
     def assign_to_asset(
         self, asset: AssetType, shadow_asset: AssetType | None = None
     ) -> None:
-        """
-        Assign the agent to an asset.
+        """Assign the agent to an asset (and optional shadow asset).
+
         Args:
-            asset (AssetType): The asset to assign to the agent.
-            shadow_asset (AssetType | None): The shadow asset to assign to the agent. Defaults to None.
+            asset: Asset instance controlled by this agent.
+            shadow_asset: Optional shadow asset used for baseline comparisons.
         """
         self.asset = asset
         self.shadow_asset = shadow_asset
 
     def clear_in_memory_storage(self, key: str | None = None) -> None:
-        """
-        Clear the in-memory storage for a given key.
+        """Clear in-memory buffers.
+
         Args:
-            key (str | None): The key to clear. If None, clear all keys.
+            key: If provided, clears only the specified buffer key; otherwise clears all.
         """
         if key is None:
             for k in self._memory_storage.keys():
@@ -568,13 +640,17 @@ class Agent:
             self._memory_storage[key].clear()
 
     @classmethod
-    def from_dir(cls, agent_dir: str) -> None:
-        """
-        Load an agent from a directory.
+    def from_dir(cls, agent_dir: str) -> "Agent":
+        """Load an agent snapshot from ``agent.pkl`` in an agent directory.
+
         Args:
-            agent_dir (str): The directory to load the agent from.
+            agent_dir: Directory containing ``agent.pkl``.
+
         Returns:
-            Agent: The loaded agent.
+            The deserialized :class:`~neuraflux.agency.agent.Agent` instance.
+
+        Raises:
+            ValueError: If the directory does not contain an ``agent.pkl`` file.
         """
         pickle_path = os.path.join(agent_dir, "agent.pkl")
         if os.path.exists(pickle_path):
@@ -588,11 +664,7 @@ class Agent:
         )
 
     def get_config(self) -> AgentConfig:
-        """
-        Get the agent configuration.
-        Returns:
-            AgentConfig: The agent configuration.
-        """
+        """Return the agent configuration."""
         return self.config
 
     def get_data(
@@ -601,6 +673,29 @@ class Agent:
         end_time: dt.datetime | None = None,
         q_factors: bool = False,
     ):
+        """Return agent timestep data joined across memory and parquet storage.
+
+        The returned dataframe is indexed by ``timestamp`` and includes derived columns
+        added by:
+
+        - :func:`~neuraflux.agency.utils_data.add_vm_data_to_df` (e.g. power/energy),
+        - :func:`~neuraflux.agency.utils_data.add_tariff_data_to_df`,
+        - :func:`~neuraflux.agency.utils_data.add_product_data_to_df`.
+
+        Args:
+            start_time: If provided, filters data to ``timestamp >= start_time``.
+            end_time: If provided, filters data to an end bound (see note below).
+            q_factors: If ``True``, appends per-controller Q-value columns for each action
+                (computed on demand).
+
+        Returns:
+            A dataframe containing agent records. If no data is available, returns an
+            empty dataframe.
+
+        Notes:
+            ``end_time`` is treated as exclusive (``timestamp < end_time``) for the
+            merged parquet + memory path, but inclusive in the in-memory-only fast path.
+        """
         # Get latest data from the in-memory storage, and use datetime index
         memory_raw_df = self.get_in_memory_data()
         memory_df: pd.DataFrame | None = None
@@ -616,7 +711,6 @@ class Agent:
             df = add_tariff_data_to_df(df, self.config.tariff)
             df = add_product_data_to_df(df, self.config.product)
             memory_df = self._coerce_agent_data_schema(tf_all_cyclic(df))
-            # TODO: Add q_factors data
 
             # Return directly in-memory data if sufficient for user request
             if start_time is not None and start_time in memory_df.index:
@@ -727,13 +821,16 @@ class Agent:
     def get_rl_data_for_timestamp(
         self, timestamp: dt.datetime | None = None, timestep_s: int = 300
     ) -> pd.DataFrame:
-        """
-        Get the data for the RL agent at a specific time step.
+        """Return the RL state window ending at a given timestamp.
+
         Args:
-            timestamp (dt.datetime | None): The timestamp to get data for. Defaults to None.
-            timestep_s (int): The time step in seconds. Defaults to 300.
+            timestamp: Timestamp to build the state window for. Defaults to the current
+                simulation time.
+            timestep_s: Step size used to compute the required historical window length.
+
         Returns:
-            pd.DataFrame: The data for the RL agent.
+            A dataframe containing at least ``history_length`` timesteps ending at
+            ``timestamp`` (inclusive).
         """
         # Get the data just for current time-step
         if timestamp is None:
@@ -747,19 +844,11 @@ class Agent:
         return df
 
     def get_database_data(self):
-        """
-        Get the data from the local database.
-        Returns:
-            pd.DataFrame: The data from the database.
-        """
+        """Read historical parquet records from the agent ``data/`` directory."""
         return read_parquet_table(self.data_dir)
 
     def get_elapsed_time(self) -> float:
-        """
-        Get the elapsed time since the agent initialization.
-        Returns:
-            float: The elapsed time in seconds.
-        """
+        """Return elapsed time since initialization, in seconds."""
         return (self.time_info.t - self.initial_time_info.t).total_seconds()
 
     def get_in_memory_data(
@@ -767,13 +856,15 @@ class Agent:
         keys: list[str] | None = None,
         join: bool = True,
     ) -> dict[str, pd.DataFrame] | pd.DataFrame:
-        """
-        Get the in-memory data for the agent.
+        """Return buffered (in-memory) agent data.
+
         Args:
-            keys (list[str] | None): The keys to retrieve. If None, retrieve all keys.
-            join (bool): Whether to join the data into a single DataFrame, using timestamp. Defaults to True.
+            keys: Buffer keys to include. If omitted, includes all buffers.
+            join: If ``True``, joins all dataframes on the timestamp column and returns
+                a single dataframe. If ``False``, returns a dict of dataframes per key.
+
         Returns:
-            dict[str, pd.DataFrame] | pd.DataFrame: The in-memory data.
+            In-memory data as either a joined dataframe or a mapping of buffer key to dataframe.
         """
         # Check if keys are provided, if not, use all keys
         if keys is None:
@@ -916,9 +1007,9 @@ class Agent:
         Get the Q factors for the agent.
         Args:
             df (pd.DataFrame | None): The data to use for the Q factors. Defaults to None.
-            use_lite_inference (bool): Whether to use lite inference. Defaults to True.
+            use_lite_inference (bool): Whether to use lite inference. Defaults to False.
         Returns:
-            np.ndarray: The Q factors for the agent.
+            list[np.ndarray]: Per-controller Q-value tensors returned by the estimator.
         """
         rl_config = self.config.control.rl_config
         rl_seq_len = rl_config.history_length
@@ -945,6 +1036,27 @@ class Agent:
     def get_q_factors_for_action(
         self, df: pd.DataFrame | None = None, *, use_lite_inference: bool = False
     ) -> tuple[list[np.ndarray], dict[str, Any]]:
+        """Compute Q-values for action selection at the current timestep.
+
+        Unlike :meth:`get_q_factors`, this method builds only the most recent
+        state sequence (batch size 1) and returns provenance metadata to help
+        downstream logging and debugging.
+
+        Args:
+            df: Optional dataframe used to build the last RL state sequence. If omitted,
+                the agent loads the current RL window.
+            use_lite_inference: If ``True``, attempts to use the estimator's lite inference
+                backend and falls back to TensorFlow on failure.
+
+        Returns:
+            A tuple of ``(q_factors, provenance)`` where ``q_factors`` is the list of
+            per-controller Q-value arrays and ``provenance`` contains model/inference
+            metadata (model name, training type, backend).
+
+        Raises:
+            ValueError: If there is insufficient data to construct a state sequence or
+                if the required state columns contain missing values.
+        """
         rl_config = self.config.control.rl_config
         rl_seq_len = rl_config.history_length
         if df is None:
@@ -1038,14 +1150,15 @@ class Agent:
         return buffer, buffer_metadata
 
     def get_uid(self) -> UidType:
-        """
-        Get the unique identifier of the agent.
-        Returns:
-            UidType: The unique identifier of the agent.
-        """
+        """Return the unique identifier of the agent."""
         return self.uid
 
     def push_in_memory_data_to_db(self, storage_path: str) -> None:
+        """Flush in-memory timestep buffers to partitioned parquet.
+
+        Args:
+            storage_path: Target directory for the parquet dataset (typically ``data/``).
+        """
         # Get the data from the in-memory storage
         df = self.get_in_memory_data()
 
@@ -1120,6 +1233,18 @@ class Agent:
         )
 
     def rl_training(self) -> None:
+        """Train the RL estimator on accumulated real-data experience.
+
+        Training is triggered by :meth:`run` when the active
+        :class:`~neuraflux.schemas.agency.RealLearningConfig` is enabled and its cron
+        expression matches the current simulation time.
+
+        Side Effects:
+            - Appends newly observed transitions to the real replay buffer.
+            - Fits the estimator according to the active training config.
+            - Writes updated artifacts to ``buffer_registry/`` and ``dqn_registry/``.
+            - Updates ``training_summary.json``.
+        """
         training_started_at = dt.datetime.utcnow()
         logger = logging.getLogger(__name__)
         logger.info(
@@ -1262,7 +1387,7 @@ class Agent:
         Simulate a trajectory at a specific time step.
         Args:
             timestamp (dt.datetime): The time step to simulate.
-            sim_len (int): The length of the simulation. Defaults to 12.
+            sim_len (int): The length of the simulation, in timesteps. Defaults to 18.
             policy (str): The policy to use for control selection. Defaults to "random_policy".
             policy_kwargs (dict): Additional arguments for the policy. Defaults to None.
             timestep_s (int): The time step in seconds. Defaults to 300.
@@ -1335,6 +1460,27 @@ class Agent:
         policy: str = "q_policy",
         policy_kwargs: dict = {"epsilon": 0.5},
     ) -> None:
+        """Train the RL estimator on simulated trajectories.
+
+        This method samples timestamps from historical real data, generates simulated
+        trajectories via :meth:`simulate_trajectory_at_time`, pushes the resulting
+        transitions into the simulated replay buffer, and runs the configured training
+        loop.
+
+        Args:
+            start_time: Optional lower bound for historical sampling.
+            end_time: Optional upper bound for historical sampling.
+            n_samples: Number of timestamps to sample. If ``None``, uses all eligible times.
+            n_traj_per_sample: Number of trajectories to generate per sampled timestamp.
+            traj_len: Trajectory length, in timesteps.
+            policy: Policy name used during simulated rollouts.
+            policy_kwargs: Policy-specific parameters (e.g. epsilon for exploration).
+
+        Side Effects:
+            - Writes simulated trajectory parquet under ``sim_data/``.
+            - Writes updated artifacts to ``buffer_registry/`` and ``dqn_registry/``.
+            - Updates ``training_summary.json``.
+        """
         training_started_at = dt.datetime.utcnow()
         logger = logging.getLogger(__name__)
         logger.info(
@@ -1554,15 +1700,20 @@ class Agent:
             dill.dump(internal_dict, f)
 
     def update_time_info(self, time_info: TimeInfo) -> None:
-        """
-        Update the time information of the agent.
+        """Update the current simulation time reference.
+
         Args:
-            time_info (TimeInfo): The time information to update.
+            time_info: Current simulation time information.
         """
         self.time_info = time_info
         self._generate_shortcuts()
 
     def update_environment_info(self, *, oat: float | None = None) -> None:
+        """Update environment signals used by default control paths.
+
+        Args:
+            oat: Outside air temperature (degC).
+        """
         self.oat = oat
 
     def _get_training_summary_path(self) -> str:
@@ -1601,14 +1752,14 @@ class Agent:
         self,
         storage_key: str,
         data_dict: dict[str, list[str | float | int]],
-        timestamp: dt.datetime = None,
+        timestamp: dt.datetime | None = None,
     ) -> None:
         """
         Push data to the in-memory storage.
         Args:
             storage_key (str): The key to store the data under.
             data_dict (dict[str, list]): The data to push.
-            timestamp (dt.datetime | None): The timestamp to associate with the data. Defaults to None. Defaults to True.
+            timestamp (dt.datetime | None): Optional timestamp to associate with the record.
         """
         # Create a copy of the data dictionary
         data_dict = copy(data_dict)

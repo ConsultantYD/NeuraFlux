@@ -1,3 +1,26 @@
+"""Simulation runner and artifact contract.
+
+This module defines :class:`~neuraflux.simulation.Simulation`, a deterministic runner that:
+
+- Initializes the environment (time reference + weather),
+- Instantiates assets and their corresponding agents,
+- Steps the simulation forward at a fixed timestep, and
+- Writes a self-contained artifacts directory for downstream analysis (e.g. dashboards).
+
+Artifacts (written in the simulation output directory):
+
+- ``config.json``: the full :class:`~neuraflux.schemas.simulation.SimulationConfig` used for the run.
+- ``sim_summary.json``: run metadata/status, runtime versions, and artifact pointers.
+- ``time_ref.json``: the current and initial simulation times.
+- ``metrics.json``: rollup metrics for each agent for both the real asset trajectory and its
+  shadow baseline, including convenience delta fields.
+- ``logs.db``: structured logs (when ``structured_logging=True``).
+- ``weather.db``: cached weather data used by the run.
+
+Per-agent artifacts are written under ``<simulation_dir>/<agent_uid>/`` (see
+:mod:`neuraflux.agency.agent` for details).
+"""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -19,33 +42,36 @@ import pandas as pd
 import tensorflow as tf
 
 from neuraflux.agency.agent import Agent
+from neuraflux.agency.products import AvailableProductsEnum
+from neuraflux.agency.utils_data import (
+    add_product_data_to_df,
+    add_tariff_data_to_df,
+    add_vm_data_to_df,
+    cron_matches,
+)
 from neuraflux.assets.factory import AvailableAssetsEnum
 from neuraflux.geography import CityEnum
-from neuraflux.agency.products import AvailableProductsEnum
-from neuraflux.agency.utils_data import add_product_data_to_df, add_tariff_data_to_df, add_vm_data_to_df
 from neuraflux.global_variables import (
-    CONTROL_KEY,
+    DT_FILE_STR_FORMAT,
     DT_STR_FORMAT,
+    ENERGY_KEY,
     OAT_KEY,
+    PRICE_KEY,
+    REWARD_KEY,
+    TARIFF_KEY,
+    WEATHER_DB_NAME,
 )
 from neuraflux.local_typing import AssetType
+from neuraflux.logging_utils import StructuredLogHandler
 from neuraflux.schemas.agency import AgentConfig
 from neuraflux.schemas.simulation import SimulationConfig
 from neuraflux.time_ref import TimeRef
 from neuraflux.weather import Weather
-from neuraflux.agency.utils_data import cron_matches
-from neuraflux.logging_utils import StructuredLogHandler
-from neuraflux.global_variables import DT_FILE_STR_FORMAT
-from neuraflux.global_variables import WEATHER_DB_NAME
-from neuraflux.global_variables import (
-    ENERGY_KEY,
-    PRICE_KEY,
-    REWARD_KEY,
-    TARIFF_KEY,
-)
 
 
 class Simulation:
+    """Run a simulation and persist reproducible artifacts to disk."""
+
     def __init__(
         self,
         simulation_config: SimulationConfig,
@@ -55,6 +81,23 @@ class Simulation:
         log_level: int | str = "INFO",
         structured_logging: bool = True,
     ) -> None:
+        """Initialize the simulation environment and instantiate agents/assets.
+
+        Args:
+            simulation_config: Full simulation configuration.
+            overwrite: If ``True``, deletes an existing non-empty output directory before
+                writing. Use with care.
+            make_unique: If ``True`` and the output directory is non-empty, appends a
+                timestamp suffix to create a new directory. If ``False``, raises.
+            log_level: Root logger level (string name or numeric).
+            structured_logging: If ``True``, attaches a SQLite-backed structured log handler
+                that writes ``logs.db`` under the output directory.
+
+        Raises:
+            ValueError: If the time range is invalid or the output directory is not usable.
+            FileExistsError: If the output directory is non-empty and neither ``overwrite`` nor
+                ``make_unique`` are enabled.
+        """
         # Initialize key internal attributes
         self.config = simulation_config
         self.directory = self._prepare_output_directory(
@@ -130,6 +173,25 @@ class Simulation:
         )
 
     def run(self) -> dict[str, Any]:
+        """Run the simulation loop and write artifacts.
+
+        The simulation iterates from ``start_time`` (inclusive) to ``end_time`` (exclusive)
+        using ``step_size_s`` increments. At each timestep:
+
+        - Agents read the current environment state, select controls, and buffer data.
+        - Assets advance one step using the agent's chosen control (or auto-control fallback).
+        - Shadow assets advance using their own auto-control baseline.
+
+        Artifacts are written even if the run fails (best-effort in ``finally``):
+        ``time_ref.json``, agent parquet flushes, and ``metrics.json`` rollups.
+
+        Returns:
+            The final ``sim_summary`` dictionary (also written to ``sim_summary.json``).
+
+        Raises:
+            Exception: Re-raises any exception from the simulation loop after recording it in
+                ``sim_summary.json`` and the logs.
+        """
         logger = logging.getLogger(__name__)
 
         started_at_utc = dt.datetime.utcnow()
@@ -258,6 +320,15 @@ class Simulation:
     def _build_sim_summary(
         self, status: str, started_at_utc: dt.datetime
     ) -> dict[str, Any]:
+        """Build the summary payload written to ``sim_summary.json``.
+
+        Args:
+            status: Current run status (e.g. ``"running"``, ``"completed"``, ``"failed"``).
+            started_at_utc: UTC timestamp when the run started.
+
+        Returns:
+            A JSON-serializable dictionary containing run metadata and artifact pointers.
+        """
         weather_db_path = os.path.join(self.directory, WEATHER_DB_NAME)
         weather_db_sha256 = (
             self._compute_file_sha256(weather_db_path)
@@ -311,11 +382,21 @@ class Simulation:
         }
 
     def _write_json_file(self, filepath: str, data: Any) -> None:
+        """Write JSON to disk with stable formatting (sorted keys, indented)."""
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, "w") as f:
             json.dump(data, f, indent=2, sort_keys=True, default=str)
 
     def _compute_metrics(self) -> dict[str, Any]:
+        """Compute simulation rollup metrics for ``metrics.json``.
+
+        The output is grouped by agent UID and includes both:
+        - ``real``: metrics computed from the controlled (agent-driven) asset trajectory, and
+        - ``shadow``: metrics computed from the baseline auto-control trajectory.
+
+        For convenience, common deltas are added at the top level of each agent entry
+        (e.g. ``delta_reward_total = real - shadow``).
+        """
         metrics: dict[str, Any] = {"agents": {}}
 
         for uid, agent_cfg in self.config.agents.items():
@@ -366,6 +447,18 @@ class Simulation:
         tariff: str,
         product: str,
     ) -> dict[str, Any]:
+        """Compute per-trajectory rollup metrics from an asset dataframe.
+
+        Args:
+            df: Asset historical dataframe indexed by time.
+            control_power_mapping: Discrete action -> power mapping used to derive power/energy.
+            tariff: Tariff identifier used to add cost columns.
+            product: Product identifier used to add reward columns.
+
+        Returns:
+            A JSON-serializable dictionary containing totals (energy, tariff, reward) and,
+            when available, comfort/peak power summaries.
+        """
         if df is None or df.empty:
             return {"n_rows": 0}
 
@@ -425,6 +518,11 @@ class Simulation:
     def _finalize_agent_artifacts(
         self, uid: str, agent: Agent, agent_directory: str
     ) -> None:
+        """Flush per-agent artifacts at the end of a simulation run.
+
+        This method is called from :meth:`run` in a ``finally`` block to ensure that
+        buffered data and snapshots are persisted even if the run fails.
+        """
         logger = logging.getLogger(__name__)
         os.makedirs(agent_directory, exist_ok=True)
 
@@ -454,6 +552,13 @@ class Simulation:
             logger.exception("Failed to write shadow asset pickle for agent %s", uid)
 
     def _parse_datetime(self, value: str | dt.datetime) -> dt.datetime:
+        """Parse a datetime value from config into naive UTC.
+
+        Supports:
+        - ISO 8601 strings (including ``Z`` suffix),
+        - :data:`~neuraflux.global_variables.DT_STR_FORMAT`, and
+        - :data:`~neuraflux.global_variables.DT_FILE_STR_FORMAT`.
+        """
         if isinstance(value, dt.datetime):
             parsed = value
         elif isinstance(value, str):
@@ -485,6 +590,16 @@ class Simulation:
     def _prepare_output_directory(
         self, directory: str, *, overwrite: bool, make_unique: bool
     ) -> str:
+        """Resolve the output directory for a run.
+
+        Args:
+            directory: Desired base output directory.
+            overwrite: Whether to delete an existing non-empty directory.
+            make_unique: Whether to append a timestamp suffix when the directory is non-empty.
+
+        Returns:
+            The resolved directory path to use for the run.
+        """
         if not directory:
             raise ValueError("SimulationConfig.directory must be a non-empty path.")
 

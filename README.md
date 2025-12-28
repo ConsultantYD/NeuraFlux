@@ -40,11 +40,11 @@ Prerequisites:
     poetry install
     ```
 
-	  Run a small simulation example (recommended for a quick sanity check):
+  Run a small simulation example (recommended for a quick sanity check):
 
-	    ```bash
-	    poetry run python examples/simulations/run_sim_energy_storage.py
-	    ```
+    ```bash
+    poetry run python examples/simulations/run_sim_energy_storage.py
+    ```
 
 - **Step 2B: Docker Deployment**
 
@@ -130,8 +130,10 @@ Downstream analysis (e.g. dashboards) can rely on these artifacts being present:
 - `config.json` (full simulation config)
 - `sim_summary.json` (run status + summary)
 - `time_ref.json` (time reference used by the simulation)
+- `metrics.json` (rollup metrics for real vs shadow/baseline trajectories)
 - `logs.db` (sqlite logs)
 - `agent.pkl` (pickled agent state)
+- `training_summary.json` (per-agent training counters/timestamps)
 - per-agent parquet data under `data/` (timestep records) and, if enabled, simulated training data under `sim_data/`
 
 

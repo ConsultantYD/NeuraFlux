@@ -1,3 +1,16 @@
+"""Commercial building simulation example.
+
+This script builds a :class:`~neuraflux.schemas.simulation.SimulationConfig` in Python and runs
+it via :func:`neuraflux.runner.run_simulation`.
+
+Control + learning schedule (constant-config):
+
+- Real and simulated training start after ``RL_AFTER_DAYS`` days (cron-driven).
+- Control selection switches after ``CONTROL_POLICY_AFTER_DAYS`` days. The example uses
+  ``hvac_policy`` for control selection; when no trained estimator exists yet, the agent
+  falls back to a rule-based controller (see :meth:`neuraflux.agency.agent.Agent.get_control`).
+"""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -53,6 +66,7 @@ WEATHER_DB_SOURCE: str | None = None
 
 
 def main() -> int:
+    """Run the example simulation and print the output directory."""
     run_id = dt.datetime.now(dt.timezone.utc).strftime(DT_FILE_STR_FORMAT)
     output_dir = str(OUTPUT_ROOT / run_id)
 

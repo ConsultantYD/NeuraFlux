@@ -1,10 +1,25 @@
+"""Optimization products (reward and feature definitions).
+
+Products define the learning objective for an agent by:
+
+- computing per-timestep rewards from an augmented dataframe, and
+- optionally adding additional features/metrics columns used by training or reporting.
+
+The simulation and agent pipelines expect:
+
+- :meth:`Product.calculate_rewards` to return a numpy array (shape: ``(n_rows, n_rewards)``),
+  and
+- :meth:`Product.get_reward_names` to list the corresponding reward column names.
+
+Most products operate on dataframes indexed by a timezone-aware or naive ``DatetimeIndex``.
+"""
+
 import datetime as dt
 from abc import ABCMeta, abstractmethod
 from enum import Enum, unique
 
 import numpy as np
 import pandas as pd
-from pandas.core.api import DataFrame as DataFrame
 
 from neuraflux.global_variables import (
     DONE_KEY,
@@ -15,9 +30,15 @@ from neuraflux.global_variables import (
 
 
 class Product(metaclass=ABCMeta):
-    """Base class for all assets."""
+    """Base class for optimization products."""
 
     def __init__(self, period: int = 24):
+        """Initialize a product with its episode period.
+
+        Args:
+            period: Period length in hours used to mark episode boundaries in
+                :meth:`calculate_dones`. Must be ``<= 24``.
+        """
         if period > 24:
             raise ValueError("Product period cannot exceed 24h")
         self.period = period
@@ -27,21 +48,39 @@ class Product(metaclass=ABCMeta):
 
     @abstractmethod
     def calculate_rewards(self, df: pd.DataFrame) -> np.ndarray:
+        """Compute rewards for each row of the provided dataframe."""
         raise NotImplementedError
 
     def calculate_total_price(self, df: pd.DataFrame) -> np.ndarray:
-        # By default, return the tariff cost
+        """Return the total price signal used for reporting (defaults to tariff cost)."""
         return df[[TARIFF_KEY]].values
 
     @abstractmethod
     def client_facing_name(self) -> str:
+        """Return a human-readable product name."""
         raise NotImplementedError
 
     # NOTE: override this method if the product has multiple rewards
     def get_reward_names(self) -> list[str]:
+        """Return the reward column names produced by :meth:`calculate_rewards`."""
         return [REWARD_KEY]
 
     def calculate_dones(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Add a boolean ``done`` column marking episode boundaries.
+
+        Episodes are defined by :attr:`period` (in hours) and evaluated on minute-of-day.
+        The current implementation marks ``done`` 10 minutes before the end of each period
+        to align with 5-minute timestep data and next-state reward conventions.
+
+        Args:
+            df: Input dataframe indexed by :class:`pandas.DatetimeIndex`.
+
+        Returns:
+            A copy of ``df`` with a boolean ``DONE_KEY`` column.
+
+        Raises:
+            ValueError: If ``df`` is not indexed by a :class:`pandas.DatetimeIndex`.
+        """
         df = df.copy()
 
         # Ensure the index is a datetime index
@@ -51,9 +90,8 @@ class Product(metaclass=ABCMeta):
         # Calculate the minute of the day for each row
         minutes_of_day = df.index.hour * 60 + df.index.minute
 
-        # Check if the minute of the day is 5 minutes before the end of a cycle
+        # Mark the episode boundary 10 minutes before the end of a cycle.
         cycle_minutes = self.period * 60
-        # df[DONE_KEY] = (((minutes_of_day + 5) % cycle_minutes) == 0).astype(bool)
         df[DONE_KEY] = (((minutes_of_day + 10) % cycle_minutes) == 0).astype(bool)
         return df
 
@@ -64,6 +102,8 @@ class Product(metaclass=ABCMeta):
 
 
 class SimpleTariffOptimizationProduct(Product):
+    """Minimize tariff cost (reward = -tariff)."""
+
     def calculate_rewards(self, df: pd.DataFrame) -> np.ndarray:
         df = df.copy()
         return -df[[TARIFF_KEY]].values
@@ -73,18 +113,17 @@ class SimpleTariffOptimizationProduct(Product):
 
 
 class HVACTariffAndComfortProduct(Product):
+    """Minimize tariff cost while penalizing comfort violations for HVAC control."""
+
     def __init__(self, period: int = 4):
         super().__init__(period)
 
     def calculate_rewards(self, df: pd.DataFrame) -> np.ndarray:
         df = df.copy()
 
-        # Energy / cost
-        # NOTE: Keep tariff-related reward as-is and add an explicit energy term to
-        # make learning signals robust even when tariff units vary across datasets.
-        # Tariff cost is the primary signal for this product (comfort is handled below).
-        # Tariff values may be small depending on dataset/unit conventions, so keep a large
-        # scaling factor here to provide a usable learning signal without changing tariff math.
+        # Energy / cost: use tariff as the primary signal. Tariff magnitudes vary across
+        # datasets/unit conventions, so a fixed scaling factor keeps gradients well-scaled
+        # without changing the underlying tariff math.
         tariff_weight = 10000.0
         reward = -df[TARIFF_KEY].astype(float).values * tariff_weight
 
@@ -120,6 +159,12 @@ class HVACTariffAndComfortProduct(Product):
         return df[[REWARD_KEY]].values
 
     def add_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Add comfort-related reporting features.
+
+        Adds:
+            - ``discomfort_c``: sum of degrees outside the heating/cooling deadband across zones.
+            - ``comfort_violation``: boolean indicator that any zone violates the deadband.
+        """
         df = df.copy()
 
         temp_cols = [col for col in df.columns if "temperature_" in col]
@@ -145,6 +190,8 @@ class HVACTariffAndComfortProduct(Product):
 
 
 class DemandResponseProduct(Product):
+    """DR product combining an energy signal and tariff cost."""
+
     def calculate_rewards(self, df: pd.DataFrame) -> np.ndarray:
         df = df.copy()
         df[REWARD_KEY] = -df[ENERGY_KEY].values  # type: ignore
@@ -167,6 +214,8 @@ class DemandResponseProduct(Product):
 
 
 class PureDemandResponseProduct(Product):
+    """DR product with a pure energy-based reward during event hours."""
+
     def calculate_rewards(self, df: pd.DataFrame) -> np.ndarray:
         df = df.copy()
         df[REWARD_KEY] = -df[ENERGY_KEY].values  # type: ignore
@@ -186,6 +235,8 @@ class PureDemandResponseProduct(Product):
 
 
 class CAISODynamicPricingProduct(Product):
+    """Market-price product using CAISO dynamic prices."""
+
     def __init__(
         self,
         price_file_path: str = "datasets/dynamic_pricing_2023.csv",
@@ -255,6 +306,8 @@ class CAISODynamicPricingProduct(Product):
 
 
 class ERCOTMarketProduct(Product):
+    """Market-price product using ERCOT real-time prices."""
+
     def __init__(
         self,
         data_filepath: str = "datasets/ERCOT_HB_BUSAVG_2023_2024_5min_interpolated.parquet",
@@ -293,6 +346,8 @@ class ERCOTMarketProduct(Product):
 
 
 class HOEPMarketProduct(Product):
+    """Market-price product using Ontario HOEP prices."""
+
     def __init__(
         self,
         price_file_path: str = "datasets/hoep_interpolated_2023.csv",
@@ -365,6 +420,8 @@ class HOEPMarketProduct(Product):
 
 
 class HVACBuildingProduct(Product):
+    """Legacy building HVAC product with multiple reward components."""
+
     def __init__(self, period: int = 2):
         self.period = period
 
@@ -433,6 +490,8 @@ class HVACBuildingProduct(Product):
 
 
 class EvDrTouGhgProduct(Product):
+    """Example EV product combining tariff cost, GHG, and demand-response events."""
+
     def __init__(self, period: int = 2):
         self.period = period
         self.duck_curve_values = [
@@ -478,11 +537,13 @@ class EvDrTouGhgProduct(Product):
         return final_value
 
     def is_dr_event(self, time: dt.datetime) -> bool:
-        """
-        Determine if the given time falls within a DR event.
+        """Return whether the given time falls within a DR event window.
 
-        :param time: A datetime object representing the current time.
-        :return: A boolean indicating if the time is within a DR event.
+        Args:
+            time: Current time.
+
+        Returns:
+            ``True`` if the time is within the (randomized) DR event hour.
         """
         # Use the day of the year as the seed
         seed = time.day
@@ -539,6 +600,8 @@ class EvDrTouGhgProduct(Product):
 
 @unique
 class AvailableProductsEnum(Enum):
+    """Registry of available product implementations."""
+
     DEMAND_RESPONSE = DemandResponseProduct
     PURE_DEMAND_RESPONSE = PureDemandResponseProduct
     DYNAMIC_PRICING = CAISODynamicPricingProduct

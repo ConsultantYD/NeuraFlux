@@ -1,3 +1,9 @@
+"""Regression tests for the commercial building example.
+
+These tests validate the simulation artifact contract and key scheduling triggers
+without relying on external weather downloads.
+"""
+
 import datetime as dt
 from pathlib import Path
 
@@ -5,7 +11,14 @@ import pandas as pd
 
 from neuraflux.agency.agent import Agent
 from neuraflux.geography import CityEnum
-from neuraflux.global_variables import DONE_KEY, ENERGY_KEY, OAT_KEY, PRICE_KEY, REWARD_KEY, TARIFF_KEY
+from neuraflux.global_variables import (
+    DONE_KEY,
+    ENERGY_KEY,
+    OAT_KEY,
+    PRICE_KEY,
+    REWARD_KEY,
+    TARIFF_KEY,
+)
 from neuraflux.schemas.agency import (
     AgentConfig,
     AgentControlConfig,

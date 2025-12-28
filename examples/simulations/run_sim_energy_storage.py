@@ -1,3 +1,17 @@
+"""Energy storage simulation example.
+
+This script builds a :class:`~neuraflux.schemas.simulation.SimulationConfig` in Python and runs
+it via :func:`neuraflux.runner.run_simulation`.
+
+Control + learning schedule (constant-config):
+
+- Control selection is disabled for the first ``RL_AFTER_DAYS`` days, so the asset uses its
+  default auto-control.
+- After the warmup period, the agent switches to ``q_policy`` with ``epsilon=0.0``.
+- Optional learning runs (real + simulated) are enabled via ``ENABLE_REAL_LEARNING`` and
+  ``ENABLE_SIM_LEARNING`` and follow the cron triggers configured below.
+"""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -51,6 +65,7 @@ WEATHER_DB_SOURCE: str | None = None
 
 
 def main() -> int:
+    """Run the example simulation and print the output directory."""
     run_id = dt.datetime.now(dt.timezone.utc).strftime(DT_FILE_STR_FORMAT)
     output_dir = str(OUTPUT_ROOT / run_id)
 
